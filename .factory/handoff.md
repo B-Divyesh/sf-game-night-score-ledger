@@ -71,5 +71,8 @@ Verified on 2026-08-27:
   privacy-first product.
 - Browsers may clear local storage. JSON backup/export remains the durable
   migration path.
-- Static-host header behavior is configured in the artifact and should be
-  checked once more on the deployed custom domain after propagation.
+- Live Standard static verification passed at
+  `https://game-night-score-ledger.sociobot.in`: hashed JS is immutable for one
+  year, `manifest.webmanifest` is `application/manifest+json`, `sw.js` is
+  `no-cache`, CSP/frame/permissions headers are present, and the basic browser
+  smoke emitted no console errors.
