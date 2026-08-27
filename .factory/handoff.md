@@ -82,11 +82,27 @@ Executed on 2026-08-27 (UTC):
 - QR links remain intentionally point-in-time, view-only snapshots. A host
   resharing is required after scores change; no cross-device relay is claimed.
 
-## Deployment follow-up
+## Live deployment evidence
 
-Push this repair to `main` using the static work-order deployment. After the
-host has published its immutable asset hashes, re-run the live checks at
-<https://game-night-score-ledger.sociobot.in/>: confirm a fresh SW controller,
-offline reload, ten rapid `+1` inputs with ten audit events, manifest MIME,
-immutable hashed asset headers, response security policy, and live asset
-identity against the new `dist/`.
+- Repair commits: `14a3760` (product + regression tests) and `b4296ed`
+  (initial handoff), pushed to `main`.
+- Deployed with the work-order static configuration via
+  `/opt/fleet/lib/deploy-static.sh game-night-score-ledger dist`.
+  Azure Static Web Apps deployment `5d71da52-ad79-45c9-bfde-242947c65d27`
+  completed successfully to the existing production host.
+- Live identity check: SHA-256 for both `index.html` and `sw.js` exactly
+  matches the final local `dist/`. Live `sw.js` is
+  `9b29eb3aaeae6da6def4ca0918ccb9dda2bac1468f73cc53a1faf4aecb59bc47`.
+  The deployment-only `/staticwebapp.config.json` correctly returns 404 and
+  the matched live service worker does not precache it.
+- Fresh 390px live-browser check: service-worker controller `true`; ten
+  synchronous `+1` inputs rendered total `10` and ten audit events; after
+  reload both remained `10`/ten; an offline reload showed the saved `Game
+  night` ledger; console/page errors `[]`; all free-core requests stayed on
+  `https://game-night-score-ledger.sociobot.in`.
+- Live `verify-url.sh`: PASS — 716 ms load, no console/page errors, correct
+  title/lang, one h1, main landmark, and no image missing alt text.
+- Live response policy: `sw.js` and manifest are `no-cache`; manifest is
+  `application/manifest+json`; hashed entry JS is
+  `public, max-age=31536000, immutable`; CSP, HSTS, frame denial, COOP,
+  permissions, nosniff, and strict referrer policy are present.
