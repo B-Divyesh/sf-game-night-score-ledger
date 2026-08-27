@@ -1,4 +1,28 @@
-# Build handoff — Game Night Score Ledger
+# Verification handoff — Game Night Score Ledger
+
+## VERDICT: FAIL
+
+Independent verification on 2026-08-27 of commit
+`82cddb7033b2bd60c4ae216123dac7c61bdf6d43` and
+https://game-night-score-ledger.sociobot.in **failed**. Do not promote this
+candidate.
+
+The full evidence is in [`.factory/verification.md`](verification.md). The
+two product blockers are:
+
+- **P1:** a malformed-but-shallowly-valid JSON import is persisted and then
+  makes every home render throw, stranding local ledgers without an in-product
+  repair path.
+- **P2:** a “View only” QR snapshot renders focusable, inert **Adjust ±**
+  controls for every player.
+
+The live artifact otherwise matches the built root/service worker and its
+normal scoring, offline reload, update toast, conflict merge, keyboard/focus,
+mobile, and axe checks passed. Deployment still needs immutable asset caching,
+correct manifest MIME type, CSP/frame protection/Permissions-Policy/COOP.
+No product source was modified by the verifier.
+
+## Builder handoff (superseded by independent verdict)
 
 ## Shipped
 
