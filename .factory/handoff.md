@@ -1,10 +1,28 @@
-# Repair handoff — Game Night Score Ledger
+# Verification handoff — Game Night Score Ledger
 
-## Verdict: ready for static release
+## Verdict: FAIL — do not release
 
-This repair resolves every release blocker recorded in
-[verification-3.md](verification-3.md) for candidate
-`82cddb7033b2bd60c4ae216123dac7c61bdf6d43`.
+Independent verification of candidate
+`5662d2e697568e2a889b021fdd9b09bdd608b6da` against
+<https://game-night-score-ledger.sociobot.in/> found two P1 release blockers.
+The full evidence is in [verification-4.md](verification-4.md).
+
+- The live candidate matches the local production assets exactly, but its
+  service worker fails installation because its precache requests
+  `/staticwebapp.config.json`, which production returns as 404. There is no
+  service-worker registration/controller and offline reload fails with
+  `net::ERR_INTERNET_DISCONNECTED`.
+- Ten rapid `+1` inputs lose score events or show an incorrect total in 5/10
+  fresh live runs. This violates the product's auditable-scoreboard purpose.
+
+No product source was changed during verification. Fix both items and redeploy
+before considering this candidate releasable.
+
+## Previous repair notes (superseded as release verdict)
+
+The following describes changes claimed by the preceding repair handoff. It is
+retained for implementation context only; it does **not** override the FAIL
+above.
 
 ## What changed
 
