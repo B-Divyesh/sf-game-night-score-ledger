@@ -50,7 +50,7 @@ Score totals use a 180ms opacity/translate settle and new history rows enter fro
 
 ## Asset plan and provenance
 
-- `public/assets/score-aurora.webp` and `.avif`: original generated atmospheric hero showing abstract translucent scoring pylons and lap rings on a dark tabletop. It establishes the world without suggesting copyrighted games or app functionality that does not exist.
+- `public/assets/score-aurora.webp` with `.jpg` fallback: original generated atmospheric hero showing abstract translucent scoring pylons and lap rings on a dark tabletop. It establishes the world without suggesting copyrighted games or app functionality that does not exist. The production files are 39 KB and 87 KB respectively.
 - App marks and PWA icons are hand-authored geometric SVG/PNG derived from a lap ring and ledger tick.
 
 ### Generation prompt sheet
