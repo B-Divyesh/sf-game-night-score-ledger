@@ -1,0 +1,10 @@
+{
+  "slug": "game-night-score-ledger",
+  "title": "Game Night Score Ledger",
+  "territory": "games-creative",
+  "user": "A board-game host running games with score tracks that wrap, teams, or many rounds who needs an auditable scoreboard that does not interrupt play.",
+  "smallest_useful_product": "A share-by-QR PWA: host enters players, scoring increments, optional lap threshold, and team totals; guests can view but not edit; export CSV/image.",
+  "artifact_class": "pwa-offline",
+  "monetization": "one-time",
+  "constraints": "Support local-first shared state and conflict-safe host controls; do not reproduce copyrighted game rules or artwork."
+}

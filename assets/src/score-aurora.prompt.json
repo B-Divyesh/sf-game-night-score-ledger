@@ -1,0 +1,9 @@
+{
+  "date": "2026-08-27",
+  "generator": "/opt/fleet/lib/gen-image.sh",
+  "deployment": "factory-image",
+  "size": "1536x1024",
+  "quality": "high",
+  "prompt": "Use case: stylized-concept. Asset type: wide PWA landing-page hero. An abstract tabletop score landscape made of five translucent glass score pylons, concentric lap rings, and tiny luminous point markers. Dark ink-blue game table, smoked acrylic, frosted glass, subtle paper grain, no recognizable board game. Wide low oblique isometric view, primary cluster on the right, quiet negative space on the left, no people. Cinematic mint edge light with restrained coral and amber point lights, shallow atmospheric depth but crisp object edges. Palette: ink night, sea-glass mint, warm coral, pale gold, frost. No text, no numbers, no logos, no watermark, no brands, no copyrighted characters, no dice, no playing cards, no chess pieces, no hands, no busy neon cyberpunk, no purple gradient, no illegible glyphs.",
+  "review": "Accepted: five clean glass pylons, coherent lap rings, clear left negative space, no text, logos, people, brands, anatomy issues, or obvious seams."
+}
