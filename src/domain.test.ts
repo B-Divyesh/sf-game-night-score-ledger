@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addScore, createSession, decodeSnapshot, encodeSnapshot, lapParts, makeSnapshot, scoreMap, teamScores, undoLast, validateImported } from "./domain";
+import { addScore, createSession, decodeSnapshot, encodeSnapshot, lapParts, makeSnapshot, scoreMap, teamScores, undoLast, validateImported, validateStored } from "./domain";
 
 describe("score ledger domain", () => {
   it("tracks raw scores, laps, teams, and an auditable undo", () => {
@@ -45,5 +45,27 @@ describe("score ledger domain", () => {
 
   it("rejects an unrelated JSON file", () => {
     expect(() => validateImported({ hello: "world" })).toThrow(/Score Ledger JSON/);
+  });
+
+  it("fully rejects malformed backups and stored records before persistence", () => {
+    const session = createSession({ title: "Safe copy", players: [{ name: "Ada" }, { name: "Bo" }] });
+    const malformed = JSON.parse(JSON.stringify(session));
+    malformed.events = [{ id: "event", playerId: session.players[0].id, delta: 1.5, round: 1, at: "not a date" }];
+    expect(() => validateImported(malformed)).toThrow(/score event/i);
+    expect(() => validateStored({ ...session, players: [{ ...session.players[0] }] })).toThrow(/between two and twelve/i);
+  });
+
+  it("keeps the documented 12-player QR board inside a normal QR envelope", () => {
+    let session = createSession({
+      title: "T".repeat(60),
+      players: Array.from({ length: 12 }, (_, index) => ({ name: `${index}`.padEnd(32, "N"), team: `${index}`.padEnd(24, "M") }))
+    });
+    for (const player of session.players) session = addScore(session, player.id, 1);
+    const encoded = encodeSnapshot(makeSnapshot(session));
+    expect(encoded.length).toBeLessThan(2_300);
+    const decoded = decodeSnapshot(encoded);
+    expect(decoded.players).toHaveLength(12);
+    expect(decoded.recentEvents).toHaveLength(12);
+    expect(decoded.scores[decoded.players[11].id]).toBe(1);
   });
 });

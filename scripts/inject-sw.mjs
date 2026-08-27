@@ -1,4 +1,5 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join, relative } from "node:path";
 
 async function walk(directory) {
@@ -20,4 +21,10 @@ const urls = (await walk(root))
   .sort();
 let source = await readFile(swPath, "utf8");
 source = source.replace("/* BUILD_ASSETS */", urls.map((url) => JSON.stringify(url)).join(",\n  "));
+const version = createHash("sha256").update(Buffer.concat(await Promise.all(urls.map((url) => readFile(join(root, url.slice(1))))))).digest("hex").slice(0, 16);
+source = source.replace("__BUILD_VERSION__", version);
 await writeFile(swPath, source);
+const manifestPath = join(root, "manifest.webmanifest");
+const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+manifest.start_url = `/?v=${version}`;
+await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

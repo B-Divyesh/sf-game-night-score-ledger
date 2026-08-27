@@ -1,5 +1,91 @@
 import type { LedgerSession, Player, ScoreEvent, ViewSnapshot } from "./types";
 
+const MAX_PLAYERS = 12;
+const MAX_PLAYER_NAME = 32;
+const MAX_TEAM_NAME = 24;
+const MAX_TITLE = 60;
+const MAX_NOTE = 80;
+const MAX_EVENTS = 100_000;
+
+type CompactSnapshot = {
+  v: 2;
+  t: string;
+  p: Array<[string, string?]>;
+  s: number[];
+  l: number | null;
+  r: number;
+  f: 0 | 1;
+  u: number;
+  e: Array<[number, number, number, number]>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readString(value: unknown, label: string, max: number, allowEmpty = false): string {
+  if (typeof value !== "string" || (!allowEmpty && !value.trim()) || value.length > max) throw new Error(`The ${label} is invalid.`);
+  return value.trim();
+}
+
+function readDate(value: unknown, label: string): string {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new Error(`The ${label} is invalid.`);
+  return new Date(value).toISOString();
+}
+
+function readInteger(value: unknown, label: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) throw new Error(`The ${label} is invalid.`);
+  return value;
+}
+
+function normaliseSession(value: unknown): LedgerSession {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.players) || !Array.isArray(value.events)) {
+    throw new Error("Choose a Score Ledger JSON export.");
+  }
+  const id = readString(value.id, "ledger ID", 64);
+  const hostKey = readString(value.hostKey, "host key", 128);
+  const title = readString(value.title, "title", MAX_TITLE);
+  if (value.players.length < 2 || value.players.length > MAX_PLAYERS) throw new Error("The imported ledger must have between two and twelve players.");
+  const players = value.players.map((raw, index): Player => {
+    if (!isRecord(raw)) throw new Error(`Player ${index + 1} is invalid.`);
+    const player: Player = { id: readString(raw.id, `player ${index + 1} ID`, 64), name: readString(raw.name, `player ${index + 1} name`, MAX_PLAYER_NAME) };
+    if (raw.team !== undefined) player.team = readString(raw.team, `player ${index + 1} team`, MAX_TEAM_NAME);
+    return player;
+  });
+  if (new Set(players.map((player) => player.id)).size !== players.length) throw new Error("The imported ledger has duplicate player IDs.");
+  if (new Set(players.map((player) => player.name.toLocaleLowerCase())).size !== players.length) throw new Error("The imported ledger has duplicate player names.");
+  if (typeof value.teamsEnabled !== "boolean") throw new Error("The team setting is invalid.");
+  const lapThreshold = value.lapThreshold === null ? null : readInteger(value.lapThreshold, "lap threshold", 2, 100_000);
+  if (!Array.isArray(value.increments) || !value.increments.length || value.increments.length > 4) throw new Error("The quick score buttons are invalid.");
+  const increments = value.increments.map((increment) => readInteger(increment, "quick score button", 1, 999));
+  if (new Set(increments).size !== increments.length) throw new Error("The quick score buttons must be unique.");
+  const round = readInteger(value.round, "round", 1, 1_000_000);
+  if (value.status !== "active" && value.status !== "finished") throw new Error("The ledger status is invalid.");
+  if (value.events.length > MAX_EVENTS) throw new Error("The imported ledger has too many score events.");
+  const playerIds = new Set(players.map((player) => player.id));
+  const eventIds = new Set<string>();
+  const events = value.events.map((raw, index): ScoreEvent => {
+    if (!isRecord(raw)) throw new Error(`Score event ${index + 1} is invalid.`);
+    const event: ScoreEvent = {
+      id: readString(raw.id, `score event ${index + 1} ID`, 64),
+      playerId: readString(raw.playerId, `score event ${index + 1} player`, 64),
+      delta: readInteger(raw.delta, `score event ${index + 1} change`, -999_999, 999_999),
+      round: readInteger(raw.round, `score event ${index + 1} round`, 1, 1_000_000),
+      at: readDate(raw.at, `score event ${index + 1} time`)
+    };
+    if (!event.delta || !playerIds.has(event.playerId) || eventIds.has(event.id)) throw new Error(`Score event ${index + 1} is invalid.`);
+    eventIds.add(event.id);
+    if (raw.note !== undefined) event.note = readString(raw.note, `score event ${index + 1} note`, MAX_NOTE, true);
+    if (raw.undoOf !== undefined) event.undoOf = readString(raw.undoOf, `score event ${index + 1} undo reference`, 64);
+    return event;
+  });
+  if (events.some((event) => event.undoOf && !eventIds.has(event.undoOf))) throw new Error("The imported ledger has an invalid undo reference.");
+  return {
+    version: 1, id, hostKey, title, players, teamsEnabled: value.teamsEnabled, lapThreshold, increments, round, events,
+    status: value.status, createdAt: readDate(value.createdAt, "creation time"), updatedAt: readDate(value.updatedAt, "update time")
+  };
+}
+
 export function uid(size = 12): string {
   const bytes = crypto.getRandomValues(new Uint8Array(size));
   return Array.from(bytes, (byte) => byte.toString(36).padStart(2, "0")).join("").slice(0, size * 2);
@@ -113,28 +199,86 @@ export function makeSnapshot(session: LedgerSession): ViewSnapshot {
 }
 
 export function encodeSnapshot(snapshot: ViewSnapshot): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(snapshot));
+  const playerIndex = new Map(snapshot.players.map((player, index) => [player.id, index]));
+  // IDs, event IDs, notes, and ISO punctuation are not useful to a guest. Keeping
+  // only the display data makes a full 12-player board reliably QR-sized.
+  const compact: CompactSnapshot = {
+    v: 2,
+    t: snapshot.title,
+    p: snapshot.players.map((player) => player.team ? [player.name, player.team] : [player.name]),
+    s: snapshot.players.map((player) => snapshot.scores[player.id]),
+    l: snapshot.lapThreshold,
+    r: snapshot.round,
+    f: snapshot.status === "finished" ? 1 : 0,
+    u: Date.parse(snapshot.updatedAt),
+    e: snapshot.recentEvents.slice(-12).flatMap((event) => {
+      const index = playerIndex.get(event.playerId);
+      return index === undefined ? [] : [[index, event.delta, event.round, Date.parse(event.at)] as [number, number, number, number]];
+    })
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(compact));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 export function decodeSnapshot(encoded: string): ViewSnapshot {
-  const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
-  const binary = atob(normalized);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  const value = JSON.parse(new TextDecoder().decode(bytes)) as ViewSnapshot;
-  if (value.version !== 1 || !Array.isArray(value.players) || typeof value.scores !== "object") throw new Error("This view link is not a valid score snapshot.");
-  return value;
+  try {
+    if (!/^[A-Za-z0-9_-]{1,12000}$/.test(encoded)) throw new Error("bad encoding");
+    const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const binary = atob(normalized);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (isRecord(value) && value.v === 2) return expandCompactSnapshot(value as CompactSnapshot);
+    return normaliseSnapshot(value);
+  } catch {
+    throw new Error("This view link is not a valid score snapshot.");
+  }
 }
 
 export function validateImported(value: unknown): LedgerSession {
-  const item = value as Partial<LedgerSession>;
-  if (item.version !== 1 || typeof item.id !== "string" || typeof item.hostKey !== "string" || !Array.isArray(item.players) || !Array.isArray(item.events)) {
-    throw new Error("Choose a Score Ledger JSON export.");
-  }
-  if (item.players.length < 1 || item.players.some((player) => typeof player?.id !== "string" || typeof player?.name !== "string")) {
-    throw new Error("The imported ledger has invalid players.");
-  }
-  return { ...item, id: uid(8), hostKey: uid(16), updatedAt: new Date().toISOString() } as LedgerSession;
+  const item = normaliseSession(value);
+  return { ...item, id: uid(8), hostKey: uid(16), updatedAt: new Date().toISOString() };
+}
+
+/** Validates old IndexedDB/localStorage records without regenerating their host key. */
+export function validateStored(value: unknown): LedgerSession { return normaliseSession(value); }
+
+function normaliseSnapshot(value: unknown): ViewSnapshot {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.players) || !isRecord(value.scores) || !Array.isArray(value.recentEvents)) throw new Error("invalid snapshot");
+  const players = value.players.map((raw, index): Player => {
+    if (!isRecord(raw)) throw new Error("invalid player");
+    const player: Player = { id: readString(raw.id, `player ${index + 1} ID`, 64), name: readString(raw.name, `player ${index + 1} name`, MAX_PLAYER_NAME) };
+    if (raw.team !== undefined) player.team = readString(raw.team, `player ${index + 1} team`, MAX_TEAM_NAME);
+    return player;
+  });
+  if (players.length < 1 || players.length > MAX_PLAYERS || new Set(players.map((player) => player.id)).size !== players.length) throw new Error("invalid players");
+  const scores: Record<string, number> = {};
+  for (const player of players) scores[player.id] = readInteger(value.scores[player.id], "score", -99_999_999, 99_999_999);
+  const playerIds = new Set(players.map((player) => player.id));
+  const recentEvents = value.recentEvents.slice(-12).map((raw, index): ScoreEvent => {
+    if (!isRecord(raw)) throw new Error("invalid event");
+    const event: ScoreEvent = { id: readString(raw.id, `event ${index + 1} ID`, 64), playerId: readString(raw.playerId, `event ${index + 1} player`, 64), delta: readInteger(raw.delta, "event change", -999_999, 999_999), round: readInteger(raw.round, "event round", 1, 1_000_000), at: readDate(raw.at, "event time") };
+    if (!event.delta || !playerIds.has(event.playerId)) throw new Error("invalid event");
+    return event;
+  });
+  return { version: 1, title: readString(value.title, "title", MAX_TITLE), players, scores, teamsEnabled: Boolean(value.teamsEnabled), lapThreshold: value.lapThreshold === null ? null : readInteger(value.lapThreshold, "lap threshold", 2, 100_000), round: readInteger(value.round, "round", 1, 1_000_000), status: value.status === "finished" ? "finished" : value.status === "active" ? "active" : (() => { throw new Error("invalid status"); })(), updatedAt: readDate(value.updatedAt, "update time"), recentEvents };
+}
+
+function expandCompactSnapshot(value: CompactSnapshot): ViewSnapshot {
+  if (!Array.isArray(value.p) || !Array.isArray(value.s) || !Array.isArray(value.e) || value.p.length < 1 || value.p.length > MAX_PLAYERS || value.s.length !== value.p.length || value.f !== 0 && value.f !== 1) throw new Error("invalid snapshot");
+  const players = value.p.map((raw, index): Player => {
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > 2) throw new Error("invalid player");
+    return { id: `p${index}`, name: readString(raw[0], `player ${index + 1} name`, MAX_PLAYER_NAME), ...(raw[1] === undefined ? {} : { team: readString(raw[1], `player ${index + 1} team`, MAX_TEAM_NAME) }) };
+  });
+  const scores = Object.fromEntries(players.map((player, index) => [player.id, readInteger(value.s[index], "score", -99_999_999, 99_999_999)]));
+  const recentEvents = value.e.slice(-12).map((raw, index): ScoreEvent => {
+    if (!Array.isArray(raw) || raw.length !== 4) throw new Error("invalid event");
+    const player = readInteger(raw[0], "event player", 0, players.length - 1);
+    const at = readInteger(raw[3], "event time", 0, 9_999_999_999_999);
+    const delta = readInteger(raw[1], "event change", -999_999, 999_999);
+    if (!delta) throw new Error("invalid event");
+    return { id: `e${index}`, playerId: players[player].id, delta, round: readInteger(raw[2], "event round", 1, 1_000_000), at: new Date(at).toISOString() };
+  });
+  return { version: 1, title: readString(value.t, "title", MAX_TITLE), players, scores, teamsEnabled: players.some((player) => Boolean(player.team)), lapThreshold: value.l === null ? null : readInteger(value.l, "lap threshold", 2, 100_000), round: readInteger(value.r, "round", 1, 1_000_000), status: value.f ? "finished" : "active", updatedAt: new Date(readInteger(value.u, "update time", 0, 9_999_999_999_999)).toISOString(), recentEvents };
 }

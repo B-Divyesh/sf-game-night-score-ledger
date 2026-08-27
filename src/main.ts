@@ -17,6 +17,8 @@ let setupTeams = false;
 let lastChanged = "";
 let license: LicenseState = initialLicenseState();
 let returnFocus: HTMLElement | null = null;
+let serviceWorkerRegistration: ServiceWorkerRegistration | null = null;
+let applyingServiceWorkerUpdate = false;
 
 const escapeHtml = (value: unknown): string => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char] ?? char);
 const formatTime = (iso: string): string => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -59,9 +61,9 @@ function renderSetup(error = ""): void {
     <div class="form-grid"><label class="field-label"><input id="teams-toggle" type="checkbox" style="width:20px;min-height:20px;margin-right:9px" ${setupTeams ? "checked" : ""}> Add team totals</label><div class="field"><label for="increments">Quick score buttons</label><input id="increments" name="increments" value="1, 5, 10" inputmode="numeric" aria-describedby="increments-help"><small id="increments-help">Up to four positive values, separated by commas.</small></div></div><p id="setup-error" class="form-error" role="alert">${escapeHtml(error)}</p><div class="dialog-actions"><button type="submit" class="button">Create ledger</button></div></form></section>`);
 }
 
-function scoreCard(player: Player, score: number, leaderId: string, session: LedgerSession): string {
+function scoreCard(player: Player, score: number, leaderId: string, session: Pick<LedgerSession, "players" | "lapThreshold" | "status" | "increments">, editable = true): string {
   const lap = lapParts(score, session.lapThreshold);
-  return `<article class="score-row glass ${player.id === leaderId && session.players.length > 1 ? "leader" : ""}" aria-labelledby="player-${player.id}"><div><h2 id="player-${player.id}" class="player-name">${escapeHtml(player.name)}</h2>${player.team ? `<span class="player-team">${escapeHtml(player.team)}</span>` : ""}</div><div class="score-main"><div class="score-number ${lastChanged === player.id ? "changed" : ""}">${score}</div>${lap ? `<div class="lap-readout"><strong>${lap.laps} ${Math.abs(lap.laps) === 1 ? "lap" : "laps"}</strong> · position ${lap.position} of ${session.lapThreshold}</div>` : ""}</div>${session.status === "active" ? `<div class="score-controls"><div class="increment-group" aria-label="Add points for ${escapeHtml(player.name)}">${session.increments.map((amount) => `<button class="increment" data-action="score" data-player="${player.id}" data-delta="${amount}" aria-label="Add ${amount} points to ${escapeHtml(player.name)}">+${amount}</button>`).join("")}</div><button class="button small secondary" data-action="custom-score" data-player="${player.id}" data-name="${escapeHtml(player.name)}"><span>Adjust</span> ±</button></div>` : ""}</article>`;
+  return `<article class="score-row glass ${player.id === leaderId && session.players.length > 1 ? "leader" : ""}" aria-labelledby="player-${player.id}"><div><h2 id="player-${player.id}" class="player-name">${escapeHtml(player.name)}</h2>${player.team ? `<span class="player-team">${escapeHtml(player.team)}</span>` : ""}</div><div class="score-main"><div class="score-number ${lastChanged === player.id ? "changed" : ""}">${score}</div>${lap ? `<div class="lap-readout"><strong>${lap.laps} ${Math.abs(lap.laps) === 1 ? "lap" : "laps"}</strong> · position ${lap.position} of ${session.lapThreshold}</div>` : ""}</div>${editable && session.status === "active" ? `<div class="score-controls"><div class="increment-group" aria-label="Add points for ${escapeHtml(player.name)}">${session.increments.map((amount) => `<button class="increment" data-action="score" data-player="${player.id}" data-delta="${amount}" aria-label="Add ${amount} points to ${escapeHtml(player.name)}">+${amount}</button>`).join("")}</div><button class="button small secondary" data-action="custom-score" data-player="${player.id}" data-name="${escapeHtml(player.name)}" aria-label="Adjust score for ${escapeHtml(player.name)}"><span>Adjust</span> ±</button></div>` : ""}</article>`;
 }
 
 function renderSession(): void {
@@ -83,10 +85,10 @@ function renderSnapshot(): void {
   const snapshot = currentSnapshot;
   const ordered = [...snapshot.players].sort((a, b) => snapshot.scores[b.id] - snapshot.scores[a.id] || a.name.localeCompare(b.name));
   const leaderId = ordered[0]?.id ?? "";
-  const pseudoSession: LedgerSession = { ...snapshot, id: "view", hostKey: "", increments: [], events: snapshot.recentEvents, createdAt: snapshot.updatedAt };
+  const pseudoSession: Pick<LedgerSession, "players" | "lapThreshold" | "status" | "increments"> = { players: snapshot.players, lapThreshold: snapshot.lapThreshold, status: snapshot.status, increments: [] };
   const teamTotals = new Map<string, number>();
   for (const player of snapshot.players) if (player.team) teamTotals.set(player.team, (teamTotals.get(player.team) ?? 0) + snapshot.scores[player.id]);
-  root.innerHTML = shell(`<div class="view-banner"><strong>View only.</strong> This QR captures a score snapshot; ask the host to reshare for newer scores.</div><section class="session-head"><div><p class="eyebrow">Round ${snapshot.round} · guest view</p><h1>${escapeHtml(snapshot.title)}</h1><p class="stale">Captured ${formatDate(snapshot.updatedAt)} at ${formatTime(snapshot.updatedAt)}</p></div><div class="toolbar"><a href="/" class="button secondary">Start your own ledger</a></div></section>${teamTotals.size ? `<section class="team-rail" aria-label="Team totals">${[...teamTotals].sort((a,b)=>b[1]-a[1]).map(([name,score]) => `<div class="team-total glass"><span class="muted">${escapeHtml(name)}</span><strong>${score}</strong></div>`).join("")}</section>` : ""}<div class="session-layout"><section class="score-list" aria-label="Player scores">${ordered.map((player) => scoreCard(player, snapshot.scores[player.id], leaderId, pseudoSession)).join("")}</section><aside class="history glass"><h2>Recent trail</h2>${snapshot.recentEvents.length ? `<ol class="history-list">${[...snapshot.recentEvents].reverse().map((event) => `<li class="event"><strong>${escapeHtml(snapshot.players.find((p) => p.id === event.playerId)?.name ?? "Player")}</strong><span class="event-delta ${event.delta < 0 ? "negative" : ""}">${signed(event.delta)}</span><span class="event-meta">Round ${event.round} · ${formatTime(event.at)}</span></li>`).join("")}</ol>` : `<div class="history-empty">No score changes when this view was shared.</div>`}</aside></div>`, true);
+  root.innerHTML = shell(`<div class="view-banner"><strong>View only.</strong> This QR captures a score snapshot; ask the host to reshare for newer scores.</div><section class="session-head"><div><p class="eyebrow">Round ${snapshot.round} · guest view</p><h1>${escapeHtml(snapshot.title)}</h1><p class="stale">Captured ${formatDate(snapshot.updatedAt)} at ${formatTime(snapshot.updatedAt)}</p></div><div class="toolbar"><a href="/" class="button secondary">Start your own ledger</a></div></section>${teamTotals.size ? `<section class="team-rail" aria-label="Team totals">${[...teamTotals].sort((a,b)=>b[1]-a[1]).map(([name,score]) => `<div class="team-total glass"><span class="muted">${escapeHtml(name)}</span><strong>${score}</strong></div>`).join("")}</section>` : ""}<div class="session-layout"><section class="score-list" aria-label="Player scores">${ordered.map((player) => scoreCard(player, snapshot.scores[player.id], leaderId, pseudoSession, false)).join("")}</section><aside class="history glass"><h2>Recent trail</h2>${snapshot.recentEvents.length ? `<ol class="history-list">${[...snapshot.recentEvents].reverse().map((event) => `<li class="event"><strong>${escapeHtml(snapshot.players.find((p) => p.id === event.playerId)?.name ?? "Player")}</strong><span class="event-delta ${event.delta < 0 ? "negative" : ""}">${signed(event.delta)}</span><span class="event-meta">Round ${event.round} · ${formatTime(event.at)}</span></li>`).join("")}</ol>` : `<div class="history-empty">No score changes when this view was shared.</div>`}</aside></div>`, true);
 }
 
 function renderError(title: string, message: string): void {
@@ -190,12 +192,12 @@ async function openShare(): Promise<void> {
   if (!currentSession) return;
   const encoded = encodeSnapshot(makeSnapshot(currentSession));
   const url = `${location.origin}/#view=${encoded}`;
-  const element = dialog(`<div class="dialog-head"><div><p class="eyebrow">Current snapshot</p><h2 id="dialog-title">Guest view</h2><p class="muted">Guests can read this board but cannot edit it. Reshare after new scores.</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close share dialog">×</button></div><div id="qr" class="qr-wrap" aria-label="Generating QR code">Creating code…</div><p class="share-url">${escapeHtml(url)}</p><div class="dialog-actions"><button class="button secondary" data-action="copy-share" data-url="${escapeHtml(url)}">Copy link</button>${"share" in navigator ? `<button class="button" data-action="native-share" data-url="${escapeHtml(url)}">Share</button>` : ""}</div>`);
+  const element = dialog(`<div class="dialog-head"><div><p class="eyebrow">Current snapshot</p><h2 id="dialog-title">Guest view</h2><p class="muted">Guests can read this board but cannot edit it. Reshare after new scores.</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close share dialog">×</button></div><div id="qr" class="qr-wrap" role="status" aria-live="polite">Creating QR code…</div><div class="field share-link"><label for="share-url">View-only share link</label><input id="share-url" class="share-url" type="text" readonly value="${escapeHtml(url)}" aria-describedby="share-help"><small id="share-help">Select this link or use Copy link. It contains the point-in-time guest snapshot.</small></div><div class="dialog-actions"><button class="button secondary" data-action="copy-share" data-url="${escapeHtml(url)}">Copy link</button>${"share" in navigator ? `<button class="button" data-action="native-share" data-url="${escapeHtml(url)}">Share</button>` : ""}</div>`);
   try {
     const QRCode = await import("qrcode");
     const canvas = document.createElement("canvas");
     await QRCode.toCanvas(canvas, url, { width: 300, margin: 2, color: { dark: "#071119", light: "#ffffff" }, errorCorrectionLevel: "L" });
-    const qr = element.querySelector("#qr"); if (qr) { qr.textContent = ""; qr.append(canvas); qr.setAttribute("aria-label", "QR code for a view-only score snapshot"); }
+    const qr = element.querySelector("#qr"); if (qr) { qr.textContent = ""; canvas.setAttribute("aria-hidden", "true"); qr.append(canvas); qr.setAttribute("role", "img"); qr.setAttribute("aria-label", "QR code for the view-only score snapshot. The share link is available below."); }
   } catch {
     const qr = element.querySelector("#qr"); if (qr) { qr.textContent = "This session is too large for a QR code. Copy the view link instead."; qr.setAttribute("role", "status"); }
   }
@@ -269,7 +271,7 @@ root.addEventListener("click", async (event) => {
   if (action === "native-share") { try { await navigator.share({ title: currentSession?.title, text: "View the current score", url: String(target.dataset.url) }); } catch { /* user cancelled */ } }
   if (action === "license") openLicense();
   if (action === "table-mode") { if (!license.unlocked) openLicense(); else { document.body.classList.toggle("table-mode"); announce(document.body.classList.contains("table-mode") ? "Table view on. Press Escape to leave." : "Table view off."); } }
-  if (action === "reload") location.reload();
+  if (action === "reload") await applyServiceWorkerUpdate();
 });
 
 document.addEventListener("keydown", (event) => {
@@ -286,11 +288,26 @@ async function registerServiceWorker(): Promise<void> {
   if (!("serviceWorker" in navigator) || import.meta.env.DEV) return;
   try {
     const registration = await navigator.serviceWorker.register("/sw.js");
+    serviceWorkerRegistration = registration;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (applyingServiceWorkerUpdate) location.reload(); });
+    const showUpdate = (): void => {
+      const toast = document.querySelector<HTMLElement>("#toast"); const text = document.querySelector("#toast-text");
+      if (toast && text) { text.textContent = "A fresh ledger version is ready."; toast.hidden = false; }
+    };
+    if (registration.waiting) showUpdate();
     registration.addEventListener("updatefound", () => {
       const worker = registration.installing; if (!worker) return;
-      worker.addEventListener("statechange", () => { if (worker.state === "installed" && navigator.serviceWorker.controller) { const toast = document.querySelector<HTMLElement>("#toast"); const text = document.querySelector("#toast-text"); if (toast && text) { text.textContent = "A fresh ledger version is ready."; toast.hidden = false; } } });
+      worker.addEventListener("statechange", () => { if (worker.state === "installed" && navigator.serviceWorker.controller) showUpdate(); });
     });
   } catch { /* the app remains fully usable without installation */ }
+}
+
+async function applyServiceWorkerUpdate(): Promise<void> {
+  const waiting = serviceWorkerRegistration?.waiting;
+  if (waiting) { applyingServiceWorkerUpdate = true; waiting.postMessage("SKIP_WAITING"); return; }
+  // The toast is only exposed for an installed update. If it was replaced by a
+  // new render before the user tapped, re-check rather than doing a blind reload.
+  await serviceWorkerRegistration?.update();
 }
 
 async function init(): Promise<void> {

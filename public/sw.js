@@ -1,4 +1,4 @@
-const CACHE = "score-ledger-v1";
+const CACHE = "score-ledger-__BUILD_VERSION__";
 const PRECACHE = [
   "/",
   "/offline.html",
@@ -7,7 +7,6 @@ const PRECACHE = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll([...new Set(PRECACHE)])));
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

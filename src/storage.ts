@@ -1,4 +1,5 @@
 import type { LedgerSession } from "./types";
+import { validateStored } from "./domain";
 
 const DB_NAME = "game-night-score-ledger";
 const STORE = "sessions";
@@ -15,9 +16,25 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+function cleanSessions(values: unknown[]): LedgerSession[] {
+  return values.flatMap((value) => {
+    try { return [validateStored(value)]; }
+    catch { return []; }
+  });
+}
+
 function fallbackRead(): LedgerSession[] {
-  try { return JSON.parse(localStorage.getItem(FALLBACK_KEY) ?? "[]") as LedgerSession[]; }
-  catch { return []; }
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(FALLBACK_KEY) ?? "[]");
+    const sessions = cleanSessions(Array.isArray(parsed) ? parsed : []);
+    // Repair a damaged fallback record as soon as it is observed, leaving valid
+    // ledgers intact instead of making the whole app unusable.
+    if (!Array.isArray(parsed) || sessions.length !== parsed.length) fallbackWrite(sessions);
+    return sessions;
+  } catch {
+    try { localStorage.removeItem(FALLBACK_KEY); } catch { /* storage may be unavailable */ }
+    return [];
+  }
 }
 
 function fallbackWrite(items: LedgerSession[]): void {
@@ -41,7 +58,7 @@ export async function listSessions(): Promise<LedgerSession[]> {
       request.onsuccess = () => resolve(request.result as LedgerSession[]);
       request.onerror = () => reject(request.error);
     });
-    return sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return cleanSessions(sessions).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch {
     return fallbackRead().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
@@ -49,29 +66,35 @@ export async function listSessions(): Promise<LedgerSession[]> {
 
 export async function getSession(id: string): Promise<LedgerSession | undefined> {
   try {
-    return await transact<LedgerSession | undefined>("readonly", (store, resolve, reject) => {
+    const session = await transact<LedgerSession | undefined>("readonly", (store, resolve, reject) => {
       const request = store.get(id);
       request.onsuccess = () => resolve(request.result as LedgerSession | undefined);
       request.onerror = () => reject(request.error);
     });
+    if (!session) return undefined;
+    try { return validateStored(session); }
+    catch { void deleteSession(id); return undefined; }
   } catch {
     return fallbackRead().find((session) => session.id === id);
   }
 }
 
 export async function saveSession(session: LedgerSession): Promise<void> {
+  // Never write an object that has not passed the same complete schema check as
+  // an imported backup. This is the last persistence boundary.
+  const checked = validateStored(session);
   try {
     await transact<void>("readwrite", (store, resolve, reject) => {
-      const request = store.put(session);
+      const request = store.put(checked);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   } catch {
-    const items = fallbackRead().filter((item) => item.id !== session.id);
-    fallbackWrite([...items, session]);
+    const items = fallbackRead().filter((item) => item.id !== checked.id);
+    fallbackWrite([...items, checked]);
   }
   const channel = new BroadcastChannel("score-ledger");
-  channel.postMessage({ type: "session", id: session.id, updatedAt: session.updatedAt });
+  channel.postMessage({ type: "session", id: checked.id, updatedAt: checked.updatedAt });
   channel.close();
 }
 
