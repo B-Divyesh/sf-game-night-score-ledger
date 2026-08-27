@@ -15,8 +15,11 @@ async function walk(directory) {
 
 const root = new URL("../dist/", import.meta.url).pathname;
 const swPath = join(root, "sw.js");
+// Azure Static Web Apps consumes this deployment configuration but does not
+// publish it. It must never become a runtime app-shell dependency.
+const deploymentOnlyFiles = new Set(["staticwebapp.config.json"]);
 const urls = (await walk(root))
-  .filter((file) => !file.endsWith("sw.js") && !file.endsWith(".map"))
+  .filter((file) => !file.endsWith("sw.js") && !file.endsWith(".map") && !deploymentOnlyFiles.has(relative(root, file).replaceAll("\\\\", "/")))
   .map((file) => `/${relative(root, file).replaceAll("\\\\", "/")}`)
   .sort();
 let source = await readFile(swPath, "utf8");

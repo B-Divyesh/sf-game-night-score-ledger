@@ -52,7 +52,12 @@ test("makes a scannable 12-player QR and keeps guest snapshots noninteractive", 
     await page.locator(`#team-${index}`).fill(`${index}`.padEnd(24, "M"));
   }
   await page.getByRole("button", { name: "Create ledger" }).click();
-  for (const name of names) await page.getByRole("button", { name: `Add 1 points to ${name}` }).click();
+  // Dispatch the whole table round in one task: score rows re-sort after each
+  // persisted event, so relying on their prior on-screen positions is neither
+  // representative of a host's rapid input nor stable at a narrow viewport.
+  await page.locator('button[data-action="score"][data-delta="1"]').evaluateAll((buttons) => {
+    for (const button of buttons) button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
   await page.getByRole("button", { name: "Share view" }).click();
   await expect(page.getByRole("img", { name: /QR code for the view-only score snapshot/ })).toBeVisible();
   const link = await page.getByLabel("View-only share link").inputValue();
@@ -74,6 +79,23 @@ test("keeps keyboard scoring operable", async ({ page }) => {
   await score.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("article", { hasText: "Ada" }).locator(".score-number")).toHaveText("1");
+});
+
+test("records every rapid quick-score tap in its displayed total and audit trail", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.locator("#player-0").fill("Ada");
+  await page.locator("#player-1").fill("Bo");
+  await page.getByRole("button", { name: "Create ledger" }).click();
+  await page.getByRole("button", { name: "Add 1 points to Ada" }).evaluate((button) => {
+    for (let index = 0; index < 10; index += 1) button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const ada = page.locator("article", { hasText: "Ada" });
+  await expect(ada.locator(".score-number")).toHaveText("10");
+  await expect(page.locator(".history-list .event")).toHaveCount(10);
+  await page.reload();
+  await expect(page.locator("article", { hasText: "Ada" }).locator(".score-number")).toHaveText("10");
+  await expect(page.locator(".history-list .event")).toHaveCount(10);
 });
 
 test("recovers from an invalid stored ledger without exposing or opening it", async ({ page }) => {
@@ -98,6 +120,7 @@ test("announces a waiting, versioned service-worker update before reload", async
   await page.waitForFunction(() => Boolean(navigator.serviceWorker?.controller));
   const source = await page.evaluate(() => fetch("/sw.js", { cache: "no-store" }).then((response) => response.text()));
   expect(source).toMatch(/const CACHE = "score-ledger-[a-f0-9]{16}"/);
+  expect(source).not.toContain("staticwebapp.config.json");
   expect(source.slice(source.indexOf('addEventListener("install"'), source.indexOf('addEventListener("activate"'))).not.toContain("skipWaiting");
   const swPath = resolve(process.cwd(), "dist/sw.js");
   await writeFile(swPath, source.replace(/score-ledger-[a-f0-9]{16}/, "score-ledger-0000000000000001"));

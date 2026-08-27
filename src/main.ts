@@ -19,6 +19,10 @@ let license: LicenseState = initialLicenseState();
 let returnFocus: HTMLElement | null = null;
 let serviceWorkerRegistration: ServiceWorkerRegistration | null = null;
 let applyingServiceWorkerUpdate = false;
+// Persisting a ledger crosses an asynchronous IndexedDB boundary. Keep mutations
+// in input order so a burst of score taps can never race a stale save back onto
+// the board.
+let sessionMutationQueue: Promise<void> = Promise.resolve();
 
 const escapeHtml = (value: unknown): string => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char] ?? char);
 const formatTime = (iso: string): string => new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(iso));
@@ -138,6 +142,19 @@ async function persistAndRender(message?: string): Promise<void> {
   if (message) announce(message);
 }
 
+function queueSessionMutation(mutate: (session: LedgerSession) => { session: LedgerSession; message?: string }): Promise<void> {
+  const operation = sessionMutationQueue.then(async () => {
+    if (!currentSession) return;
+    const result = mutate(currentSession);
+    currentSession = result.session;
+    await persistAndRender(result.message);
+  });
+  // Keep the queue alive after a recoverable input/storage error. Individual
+  // callers still receive the rejection and can show their own form feedback.
+  sessionMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
+
 function focusHeading(): void {
   const heading = document.querySelector<HTMLElement>("main h1");
   if (!heading) return;
@@ -236,7 +253,16 @@ root.addEventListener("submit", async (event) => {
   }
   if (form.id === "custom-score-form" && currentSession) {
     const data = new FormData(form); const playerId = String(data.get("player")); const delta = Number(data.get("delta"));
-    try { currentSession = addScore(currentSession, playerId, delta, String(data.get("note") ?? "")); lastChanged = playerId; closeDialog(); const player = currentSession.players.find((item) => item.id === playerId); await persistAndRender(`${signed(delta)} for ${player?.name}.`); }
+    try {
+      const note = String(data.get("note") ?? "");
+      await queueSessionMutation((session) => {
+        const next = addScore(session, playerId, delta, note);
+        lastChanged = playerId;
+        const player = next.players.find((item) => item.id === playerId);
+        return { session: next, message: `${signed(delta)} for ${player?.name}.` };
+      });
+      closeDialog();
+    }
     catch (error) { const box = form.querySelector(".form-error"); if (box) box.textContent = error instanceof Error ? error.message : "Enter a valid score change."; }
   }
   if (form.id === "license-form") {
@@ -255,12 +281,26 @@ root.addEventListener("click", async (event) => {
   if (action === "remove-player") { const index = Number(target.dataset.index); if (setupPlayers.length > 2) setupPlayers.splice(index, 1); renderSetup(); }
   if (action === "open-session") await openSession(String(target.dataset.id));
   if (action === "delete-session") { const title = String(target.dataset.title); if (confirm(`Delete “${title}” from this device? Export it first if you need a copy.`)) { await deleteSession(String(target.dataset.id)); savedSessions = await listSessions(); renderHome(); announce(`${title} deleted.`); } }
-  if (action === "score" && currentSession) { const playerId = String(target.dataset.player); const delta = Number(target.dataset.delta); currentSession = addScore(currentSession, playerId, delta); lastChanged = playerId; const player = currentSession.players.find((item) => item.id === playerId); await persistAndRender(`${signed(delta)} for ${player?.name}.`); }
+  if (action === "score" && currentSession) {
+    const playerId = String(target.dataset.player); const delta = Number(target.dataset.delta);
+    void queueSessionMutation((session) => {
+      const next = addScore(session, playerId, delta);
+      lastChanged = playerId;
+      const player = next.players.find((item) => item.id === playerId);
+      return { session: next, message: `${signed(delta)} for ${player?.name}.` };
+    }).catch((error) => announce(error instanceof Error ? error.message : "Could not save that score change."));
+  }
   if (action === "custom-score" && currentSession) { const player = String(target.dataset.player); const name = String(target.dataset.name); dialog(`<div class="dialog-head"><div><p class="eyebrow">Round ${currentSession.round}</p><h2 id="dialog-title">Adjust ${escapeHtml(name)}</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close adjustment dialog">×</button></div><form id="custom-score-form"><input type="hidden" name="player" value="${player}"><div class="field"><label for="delta">Score change</label><input id="delta" name="delta" type="number" inputmode="numeric" min="-999999" max="999999" placeholder="Use a minus to subtract" required></div><div class="field" style="margin-top:14px"><label for="note">Note <span class="muted">(optional)</span></label><input id="note" name="note" maxlength="80" placeholder="Bonus, correction, end game…"></div><p class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button ghost" data-action="close-dialog">Cancel</button><button type="submit" class="button">Record change</button></div></form>`); }
-  if (action === "undo" && currentSession) { const before = currentSession.events.length; currentSession = undoLast(currentSession); if (currentSession.events.length > before) await persistAndRender("Last score change reversed. The correction remains in the trail."); }
-  if (action === "next-round" && currentSession) { currentSession = { ...currentSession, round: currentSession.round + 1, updatedAt: new Date().toISOString() }; await persistAndRender(`Round ${currentSession.round} started.`); }
-  if (action === "finish" && currentSession && confirm(`Finish “${currentSession.title}”? The ledger stays saved and can be reopened.`)) { currentSession = { ...currentSession, status: "finished", updatedAt: new Date().toISOString() }; await persistAndRender("Final scores saved."); }
-  if (action === "reopen" && currentSession) { currentSession = { ...currentSession, status: "active", updatedAt: new Date().toISOString() }; await persistAndRender("Ledger reopened."); }
+  if (action === "undo" && currentSession) await queueSessionMutation((session) => {
+    const next = undoLast(session);
+    return { session: next, message: next.events.length > session.events.length ? "Last score change reversed. The correction remains in the trail." : undefined };
+  });
+  if (action === "next-round" && currentSession) await queueSessionMutation((session) => {
+    const next = { ...session, round: session.round + 1, updatedAt: new Date().toISOString() };
+    return { session: next, message: `Round ${next.round} started.` };
+  });
+  if (action === "finish" && currentSession && confirm(`Finish “${currentSession.title}”? The ledger stays saved and can be reopened.`)) await queueSessionMutation((session) => ({ session: { ...session, status: "finished", updatedAt: new Date().toISOString() }, message: "Final scores saved." }));
+  if (action === "reopen" && currentSession) await queueSessionMutation((session) => ({ session: { ...session, status: "active", updatedAt: new Date().toISOString() }, message: "Ledger reopened." }));
   if (action === "share") await openShare();
   if (action === "export-csv" && currentSession) { exportCsv(currentSession); announce("CSV export downloaded."); }
   if (action === "export-json" && currentSession) { download(`${safeName(currentSession.title)}.json`, new Blob([JSON.stringify(currentSession, null, 2)], { type: "application/json" })); announce("Backup JSON downloaded."); }

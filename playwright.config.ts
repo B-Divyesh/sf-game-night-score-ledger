@@ -13,6 +13,7 @@ export default defineConfig({
     reuseExistingServer: true
   },
   projects: [
-    { name: "mobile-chromium", use: { ...devices["Pixel 5"] } }
+    { name: "desktop-chromium", use: { browserName: "chromium", viewport: { width: 1440, height: 900 } } },
+    { name: "mobile-390", use: { ...devices["Pixel 5"], viewport: { width: 390, height: 844 } } }
   ]
 });
