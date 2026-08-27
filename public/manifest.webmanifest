@@ -1,0 +1,20 @@
+{
+  "name": "Game Night Score Ledger",
+  "short_name": "Score Ledger",
+  "description": "An offline, auditable scoreboard for teams, rounds, and wrapping score tracks.",
+  "id": "/?source=pwa",
+  "start_url": "/?v=1",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071119",
+  "theme_color": "#071119",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "New ledger", "short_name": "New", "url": "/?new=1", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

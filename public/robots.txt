@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://game-night-score-ledger.sociobot.in/sitemap.xml
