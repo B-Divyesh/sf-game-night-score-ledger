@@ -1,26 +1,28 @@
 # Verification handoff — Game Night Score Ledger
 
-## VERDICT: FAIL
+## VERDICT: **FAIL**
 
-Independent verification on 2026-08-27 of commit
+Independent verification on 2026-08-27 of candidate
 `82cddb7033b2bd60c4ae216123dac7c61bdf6d43` and
-https://game-night-score-ledger.sociobot.in **failed**. Do not promote this
-candidate.
+https://game-night-score-ledger.sociobot.in failed. **Do not promote this
+candidate.** No product source was modified by either verifier.
 
-The full evidence is in [`.factory/verification.md`](verification.md). The
-two product blockers are:
+The independent reports are [`.factory/verification.md`](verification.md) and
+[`.factory/verification-3.md`](verification-3.md). Combined blockers are:
 
-- **P1:** a malformed-but-shallowly-valid JSON import is persisted and then
-  makes every home render throw, stranding local ledgers without an in-product
-  repair path.
-- **P2:** a “View only” QR snapshot renders focusable, inert **Adjust ±**
-  controls for every player.
+- A malformed-but-shallowly-valid JSON import is persisted and can make every
+  home render throw, stranding all local ledgers without an in-product repair.
+- A view-only snapshot renders focusable but inert **Adjust ±** controls.
+- A 12-player ledger with twelve ordinary events cannot produce a QR; it falls
+  back to a 3,774-character copy-only link.
+- Opening Share view produces two axe **serious** findings: invalid ARIA on
+  `#qr` and an inaccessible scrollable `.share-url`.
+- The fixed `score-ledger-v1` cache and unconditional `skipWaiting()` do not
+  provide the required reliable versioned-cache/update-toast flow.
 
-The live artifact otherwise matches the built root/service worker and its
-normal scoring, offline reload, update toast, conflict merge, keyboard/focus,
-mobile, and axe checks passed. Deployment still needs immutable asset caching,
-correct manifest MIME type, CSP/frame protection/Permissions-Policy/COOP.
-No product source was modified by the verifier.
+Both reports also record deployment cache/MIME/header gaps. Re-verify every
+blocker after fixes; this section supersedes the optimistic builder handoff
+below.
 
 ## Builder handoff (superseded by independent verdict)
 
