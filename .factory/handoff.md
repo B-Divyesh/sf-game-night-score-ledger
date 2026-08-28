@@ -1,6 +1,6 @@
 # Repair handoff — Game Night Score Ledger
 
-## Verdict: repaired locally; live deployment verification follows push
+## Verdict: PASS — repaired, deployed, and live-verified
 
 This repair resolves the P1 finding in independent verification 5 for
 candidate `8d8d9146bd91cb47fc01b237a975533737126227`.
@@ -67,9 +67,37 @@ npx playwright test --project=mobile-390 --workers=1 --reporter=line
 - The artifact remains a Vite TypeScript static PWA; its manifest, hand-made
   icons, generated-asset provenance, `/privacy`, `/terms`, and Azure Static
   Web Apps response policy are unchanged.
-- Production deployment, live identity, offline/update, privacy-origin, and
-  response-header checks will be appended after the repair commit is pushed
-  and deployed with the work-order static configuration.
+- The production checks below confirm the deployed artifact, not merely a
+  similar live page.
+
+## Deployment and live verification
+
+- Repair commit `8a35d30b6d252e233fac7137d5a4c0ed3abb2061` was pushed to `main`.
+- `/opt/fleet/lib/deploy-static.sh game-night-score-ledger dist` completed
+  Azure Static Web Apps deployment
+  `f9b48a7e-d0cd-42f9-94fa-c7179a4d8362`; the custom production domain returned
+  HTTPS 200 after deployment.
+- Live identity: local and production SHA-256 values exactly match:
+
+  | File | SHA-256 |
+  | --- | --- |
+  | `index.html` | `e5d0e960c8c7e105b7b4a364708b5c47d9c58f2dcc2746c2ec7b2298cf6ebd44` |
+  | `sw.js` | `46e18cb09461e1e139f68078da06544309bf8555cf55321847522af3e5eeda74` |
+
+- Live `verify-url.sh`: PASS — 958 ms network-idle load, no console/page
+  errors, correct title and language, exactly one `h1`, `main`, and no missing
+  image alt text or unlabeled buttons.
+- Fresh production Chromium checks at 1440×900 and 390×844: PASS. Each entered
+  the verifier's exact values, enabled teams, retained
+  `Wrap audit` / `100` / `1, 25, 50`, created and scored the ledger, gained a
+  service-worker controller, then reloaded offline with saved `Wrap audit`.
+  Both had zero errors and all observed free-core requests were only to
+  `https://game-night-score-ledger.sociobot.in`.
+- Live response policy: `sw.js` and manifest are `no-cache`; manifest is
+  `application/manifest+json`; the hashed entry JS is
+  `public, max-age=31536000, immutable`. HSTS, `X-Frame-Options: DENY`, COOP,
+  nosniff, strict referrer policy, Permissions-Policy, and the self-only CSP
+  with the disclosed Sociobot license endpoint are present.
 
 ## How to run
 
@@ -83,5 +111,4 @@ npx playwright test --workers=1 --reporter=line
 
 ## Known gaps
 
-None locally. Live verification is pending the deployment step described
-above.
+None.
