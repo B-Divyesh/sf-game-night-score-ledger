@@ -111,7 +111,7 @@ export function createSession(input: {
     players,
     teamsEnabled: players.some((player) => Boolean(player.team)),
     lapThreshold: input.lapThreshold && input.lapThreshold > 0 ? Math.floor(input.lapThreshold) : null,
-    increments: cleanIncrements(input.increments ?? [1, 5, 10]),
+    increments: validateQuickIncrements(input.increments ?? [1, 5, 10]),
     round: 1,
     events: [],
     status: "active",
@@ -120,9 +120,18 @@ export function createSession(input: {
   };
 }
 
-export function cleanIncrements(values: number[]): number[] {
-  const result = [...new Set(values.map(Math.abs).map(Math.floor).filter((value) => value > 0 && value <= 999))];
-  return result.slice(0, 4).length ? result.slice(0, 4) : [1, 5, 10];
+export function validateQuickIncrements(values: number[]): number[] {
+  if (values.length < 1 || values.length > 4 || values.some((value) => !Number.isInteger(value) || value < 1 || value > 999) || new Set(values).size !== values.length) {
+    throw new Error("Use one to four unique whole numbers from 1 to 999 for quick score buttons.");
+  }
+  return [...values];
+}
+
+/** Parses the human-entered setup field without changing the configured scores. */
+export function parseQuickIncrements(value: string): number[] {
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.some((part) => !part)) throw new Error("Use one to four unique whole numbers from 1 to 999 for quick score buttons.");
+  return validateQuickIncrements(parts.map(Number));
 }
 
 export function scoreMap(session: Pick<LedgerSession, "players" | "events">): Record<string, number> {

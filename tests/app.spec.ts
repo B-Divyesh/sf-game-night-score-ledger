@@ -28,6 +28,28 @@ test("keeps title, lap threshold, and quick scores through both team-toggle rere
   await expect(page.getByRole("button", { name: "Add 50 points to Ada" })).toBeVisible();
 });
 
+test("rejects the verifier's invalid quick scores without changing or creating score actions", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.locator("#player-0").fill("Ada");
+  await page.locator("#player-1").fill("Bo");
+  await page.locator("#increments").fill("1, 999, 1000, -2");
+  await page.getByRole("button", { name: "Create ledger" }).click();
+
+  await expect(page.getByRole("alert")).toHaveText("Use one to four unique whole numbers from 1 to 999 for quick score buttons.");
+  await expect(page.locator("#increments")).toHaveValue("1, 999, 1000, -2");
+  await expect(page.locator("#increments")).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Set the table" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Add .* points to Ada/ })).toHaveCount(0);
+
+  await page.locator("#increments").fill("1, 999");
+  await page.getByRole("button", { name: "Create ledger" }).click();
+  await expect(page.getByRole("heading", { name: "Game night" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add 1 points to Ada" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add 999 points to Ada" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add 2 points to Ada" })).toHaveCount(0);
+});
+
 test("creates, scores, persists, shares, and works offline", async ({ page, context }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });

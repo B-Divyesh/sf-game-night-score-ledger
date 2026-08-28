@@ -1,6 +1,6 @@
 import "./style.css";
 import type { LedgerSession, Player, ViewSnapshot } from "./types";
-import { addScore, createSession, decodeSnapshot, encodeSnapshot, lapParts, makeSnapshot, scoreMap, teamScores, undoLast, validateImported } from "./domain";
+import { addScore, createSession, decodeSnapshot, encodeSnapshot, lapParts, makeSnapshot, parseQuickIncrements, scoreMap, teamScores, undoLast, validateImported } from "./domain";
 import { deleteSession, getSession, listSessions, saveConflictSafe, saveSession } from "./storage";
 import { captureLicenseFromUrl, checkoutUrl, initialLicenseState, restoreLicense, verifyLicense, type LicenseState } from "./license";
 
@@ -59,12 +59,13 @@ function renderHome(): void {
   root.innerHTML = shell(`<section class="hero"><div class="hero-copy"><p class="eyebrow">The table-first scorekeeper</p><h1>Keep every point. Lose the arithmetic.</h1><p>Track long rounds, score-track laps, and teams without stopping play. Every change stays visible, undoable, and saved offline.</p><div class="hero-actions"><button class="button" data-action="start">Start a ledger <span aria-hidden="true">→</span></button>${savedSessions[0] ? `<button class="button secondary" data-action="open-session" data-id="${savedSessions[0].id}">Continue last game</button>` : ""}</div><div class="proof-strip" aria-label="Product qualities"><span><b>0</b> accounts</span><span><b>1</b> host</span><span><b>Every</b> move recorded</span></div></div><picture class="hero-art"><source srcset="/assets/score-aurora.webp" type="image/webp"><img src="/assets/score-aurora.jpg" width="1280" height="854" alt="Abstract glass score columns standing on luminous concentric lap rings" fetchpriority="high"></picture></section>${recent}`);
 }
 
-function renderSetup(error = ""): void {
+function renderSetup(error = "", errorField?: "increments"): void {
   const teamInputs = setupTeams;
   root.innerHTML = shell(`<section class="setup glass" aria-labelledby="setup-title"><div class="setup-head"><div><p class="eyebrow">Ready in under a minute</p><h1 id="setup-title" style="font-size:clamp(2rem,6vw,4rem)">Set the table</h1><p class="muted">Names first. Everything else can stay at its useful default.</p></div><button class="button ghost" data-action="cancel-setup">Cancel</button></div>
     <form id="setup-form" novalidate><div class="form-grid"><div class="field"><label for="game-title">Game or session name</label><input id="game-title" name="title" maxlength="60" value="${escapeHtml(setupDetails.title)}" required autocomplete="off"></div><div class="field"><label for="lap-threshold">Score track wraps at <span class="muted">(optional)</span></label><input id="lap-threshold" name="lap" type="number" min="2" max="100000" inputmode="numeric" value="${escapeHtml(setupDetails.lap)}" placeholder="For example, 100"><small>We’ll show laps plus track position.</small></div></div>
     <div class="players-editor"><div class="players-editor-head"><span class="field-label">Players</span><button type="button" class="button small secondary" data-action="add-player">Add player</button></div>${setupPlayers.map((player, index) => `<div class="player-editor"><label class="live-region" for="player-${index}">Player ${index + 1} name</label><input id="player-${index}" data-player-index="${index}" data-field="name" maxlength="32" value="${escapeHtml(player.name)}" placeholder="Player ${index + 1}" required autocomplete="off">${teamInputs ? `<label class="live-region" for="team-${index}">Team for ${player.name || `player ${index + 1}`}</label><input class="team-input" id="team-${index}" data-player-index="${index}" data-field="team" maxlength="24" value="${escapeHtml(player.team)}" placeholder="Team name">` : ""}<button type="button" class="icon-button" data-action="remove-player" data-index="${index}" aria-label="Remove player ${index + 1}" ${setupPlayers.length <= 2 ? "disabled" : ""}>×</button></div>`).join("")}</div>
-    <div class="form-grid"><label class="field-label"><input id="teams-toggle" type="checkbox" style="width:20px;min-height:20px;margin-right:9px" ${setupTeams ? "checked" : ""}> Add team totals</label><div class="field"><label for="increments">Quick score buttons</label><input id="increments" name="increments" value="${escapeHtml(setupDetails.increments)}" inputmode="numeric" aria-describedby="increments-help"><small id="increments-help">Up to four positive values, separated by commas.</small></div></div><p id="setup-error" class="form-error" role="alert">${escapeHtml(error)}</p><div class="dialog-actions"><button type="submit" class="button">Create ledger</button></div></form></section>`);
+    <div class="form-grid"><label class="field-label"><input id="teams-toggle" type="checkbox" style="width:20px;min-height:20px;margin-right:9px" ${setupTeams ? "checked" : ""}> Add team totals</label><div class="field"><label for="increments">Quick score buttons</label><input id="increments" name="increments" value="${escapeHtml(setupDetails.increments)}" inputmode="numeric" aria-describedby="increments-help${errorField === "increments" ? " setup-error" : ""}" aria-invalid="${errorField === "increments"}"><small id="increments-help">Up to four positive values, separated by commas.</small></div></div><p id="setup-error" class="form-error" role="alert">${escapeHtml(error)}</p><div class="dialog-actions"><button type="submit" class="button">Create ledger</button></div></form></section>`);
+  if (errorField === "increments") document.querySelector<HTMLInputElement>("#increments")?.focus();
 }
 
 function scoreCard(player: Player, score: number, leaderId: string, session: Pick<LedgerSession, "players" | "lapThreshold" | "status" | "increments">, editable = true): string {
@@ -255,11 +256,19 @@ root.addEventListener("change", async (event) => {
 root.addEventListener("submit", async (event) => {
   event.preventDefault(); const form = event.target as HTMLFormElement;
   if (form.id === "setup-form") {
-    const data = new FormData(form); const names = setupPlayers.map((player) => player.name.trim()).filter(Boolean);
+    const data = new FormData(form);
+    setupDetails = {
+      title: String(data.get("title") ?? ""),
+      lap: String(data.get("lap") ?? ""),
+      increments: String(data.get("increments") ?? "")
+    };
+    const names = setupPlayers.map((player) => player.name.trim()).filter(Boolean);
     if (names.length < 2) { renderSetup("Add at least two player names."); return; }
     if (new Set(names.map((name) => name.toLocaleLowerCase())).size !== names.length) { renderSetup("Give each player a different name so the trail stays clear."); return; }
     const lap = Number(data.get("lap")) || null; if (lap && (lap < 2 || lap > 100000)) { renderSetup("The lap threshold must be between 2 and 100,000."); return; }
-    const increments = String(data.get("increments") ?? "").split(",").map(Number);
+    let increments: number[];
+    try { increments = parseQuickIncrements(setupDetails.increments); }
+    catch (error) { renderSetup(error instanceof Error ? error.message : "Check the quick score buttons.", "increments"); return; }
     const session = createSession({ title: String(data.get("title") ?? ""), players: setupPlayers.filter((p) => p.name.trim()).map((p) => ({ name: p.name, team: setupTeams ? p.team : "" })), lapThreshold: lap, increments });
     currentSession = session; await saveSession(session); savedSessions = await listSessions(); history.replaceState({}, "", `/${hostHash(session)}`); renderSession(); focusHeading(); announce(`${session.title} created and saved on this device.`);
   }

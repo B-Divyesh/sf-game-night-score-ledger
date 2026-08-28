@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addScore, createSession, decodeSnapshot, encodeSnapshot, lapParts, makeSnapshot, scoreMap, teamScores, undoLast, validateImported, validateStored } from "./domain";
+import { addScore, createSession, decodeSnapshot, encodeSnapshot, lapParts, makeSnapshot, parseQuickIncrements, scoreMap, teamScores, undoLast, validateImported, validateQuickIncrements, validateStored } from "./domain";
 
 describe("score ledger domain", () => {
   it("tracks raw scores, laps, teams, and an auditable undo", () => {
@@ -53,6 +53,15 @@ describe("score ledger domain", () => {
     malformed.events = [{ id: "event", playerId: session.players[0].id, delta: 1.5, round: 1, at: "not a date" }];
     expect(() => validateImported(malformed)).toThrow(/score event/i);
     expect(() => validateStored({ ...session, players: [{ ...session.players[0] }] })).toThrow(/between two and twelve/i);
+  });
+
+  it("rejects invalid quick scores instead of changing them into score actions", () => {
+    for (const value of ["", "1, 2, 3, 4, 5", "1.5", "-2", "0", "1, 1", "1000", "1,,2"]) {
+      expect(() => parseQuickIncrements(value)).toThrow(/one to four unique whole numbers from 1 to 999/i);
+    }
+    expect(parseQuickIncrements("1, 25, 999")).toEqual([1, 25, 999]);
+    expect(() => validateQuickIncrements([1, 999, 1000, -2])).toThrow(/one to four unique whole numbers from 1 to 999/i);
+    expect(() => createSession({ title: "No coercion", players: [{ name: "Ada" }, { name: "Bo" }], increments: [1, 999, 1000, -2] })).toThrow(/one to four unique whole numbers from 1 to 999/i);
   });
 
   it("keeps the documented 12-player QR board inside a normal QR envelope", () => {
