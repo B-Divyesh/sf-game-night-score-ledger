@@ -3,6 +3,31 @@ import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+test("keeps title, lap threshold, and quick scores through both team-toggle rerenders", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.locator("#game-title").fill("Wrap audit");
+  await page.locator("#lap-threshold").fill("100");
+  await page.locator("#increments").fill("1, 25, 50");
+  await page.locator("#player-0").fill("Ada");
+  await page.locator("#player-1").fill("Bo");
+
+  await page.locator("#teams-toggle").check();
+  await expect(page.locator("#game-title")).toHaveValue("Wrap audit");
+  await expect(page.locator("#lap-threshold")).toHaveValue("100");
+  await expect(page.locator("#increments")).toHaveValue("1, 25, 50");
+
+  await page.locator("#teams-toggle").uncheck();
+  await expect(page.locator("#game-title")).toHaveValue("Wrap audit");
+  await expect(page.locator("#lap-threshold")).toHaveValue("100");
+  await expect(page.locator("#increments")).toHaveValue("1, 25, 50");
+  await page.getByRole("button", { name: "Create ledger" }).click();
+  await expect(page.getByRole("heading", { name: "Wrap audit" })).toBeVisible();
+  await expect(page.getByText("Track wraps at 100")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add 25 points to Ada" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add 50 points to Ada" })).toBeVisible();
+});
+
 test("creates, scores, persists, shares, and works offline", async ({ page, context }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });

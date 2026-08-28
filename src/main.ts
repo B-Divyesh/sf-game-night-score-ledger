@@ -9,11 +9,13 @@ if (!appRoot) throw new Error("App mount not found");
 const root: HTMLDivElement = appRoot;
 
 type SetupPlayer = { name: string; team: string };
+type SetupDetails = { title: string; lap: string; increments: string };
 let savedSessions: LedgerSession[] = [];
 let currentSession: LedgerSession | null = null;
 let currentSnapshot: ViewSnapshot | null = null;
 let setupPlayers: SetupPlayer[] = [{ name: "", team: "" }, { name: "", team: "" }];
 let setupTeams = false;
+let setupDetails: SetupDetails = { title: "Game night", lap: "", increments: "1, 5, 10" };
 let lastChanged = "";
 let license: LicenseState = initialLicenseState();
 let returnFocus: HTMLElement | null = null;
@@ -60,9 +62,9 @@ function renderHome(): void {
 function renderSetup(error = ""): void {
   const teamInputs = setupTeams;
   root.innerHTML = shell(`<section class="setup glass" aria-labelledby="setup-title"><div class="setup-head"><div><p class="eyebrow">Ready in under a minute</p><h1 id="setup-title" style="font-size:clamp(2rem,6vw,4rem)">Set the table</h1><p class="muted">Names first. Everything else can stay at its useful default.</p></div><button class="button ghost" data-action="cancel-setup">Cancel</button></div>
-    <form id="setup-form" novalidate><div class="form-grid"><div class="field"><label for="game-title">Game or session name</label><input id="game-title" name="title" maxlength="60" value="Game night" required autocomplete="off"></div><div class="field"><label for="lap-threshold">Score track wraps at <span class="muted">(optional)</span></label><input id="lap-threshold" name="lap" type="number" min="2" max="100000" inputmode="numeric" placeholder="For example, 100"><small>We’ll show laps plus track position.</small></div></div>
+    <form id="setup-form" novalidate><div class="form-grid"><div class="field"><label for="game-title">Game or session name</label><input id="game-title" name="title" maxlength="60" value="${escapeHtml(setupDetails.title)}" required autocomplete="off"></div><div class="field"><label for="lap-threshold">Score track wraps at <span class="muted">(optional)</span></label><input id="lap-threshold" name="lap" type="number" min="2" max="100000" inputmode="numeric" value="${escapeHtml(setupDetails.lap)}" placeholder="For example, 100"><small>We’ll show laps plus track position.</small></div></div>
     <div class="players-editor"><div class="players-editor-head"><span class="field-label">Players</span><button type="button" class="button small secondary" data-action="add-player">Add player</button></div>${setupPlayers.map((player, index) => `<div class="player-editor"><label class="live-region" for="player-${index}">Player ${index + 1} name</label><input id="player-${index}" data-player-index="${index}" data-field="name" maxlength="32" value="${escapeHtml(player.name)}" placeholder="Player ${index + 1}" required autocomplete="off">${teamInputs ? `<label class="live-region" for="team-${index}">Team for ${player.name || `player ${index + 1}`}</label><input class="team-input" id="team-${index}" data-player-index="${index}" data-field="team" maxlength="24" value="${escapeHtml(player.team)}" placeholder="Team name">` : ""}<button type="button" class="icon-button" data-action="remove-player" data-index="${index}" aria-label="Remove player ${index + 1}" ${setupPlayers.length <= 2 ? "disabled" : ""}>×</button></div>`).join("")}</div>
-    <div class="form-grid"><label class="field-label"><input id="teams-toggle" type="checkbox" style="width:20px;min-height:20px;margin-right:9px" ${setupTeams ? "checked" : ""}> Add team totals</label><div class="field"><label for="increments">Quick score buttons</label><input id="increments" name="increments" value="1, 5, 10" inputmode="numeric" aria-describedby="increments-help"><small id="increments-help">Up to four positive values, separated by commas.</small></div></div><p id="setup-error" class="form-error" role="alert">${escapeHtml(error)}</p><div class="dialog-actions"><button type="submit" class="button">Create ledger</button></div></form></section>`);
+    <div class="form-grid"><label class="field-label"><input id="teams-toggle" type="checkbox" style="width:20px;min-height:20px;margin-right:9px" ${setupTeams ? "checked" : ""}> Add team totals</label><div class="field"><label for="increments">Quick score buttons</label><input id="increments" name="increments" value="${escapeHtml(setupDetails.increments)}" inputmode="numeric" aria-describedby="increments-help"><small id="increments-help">Up to four positive values, separated by commas.</small></div></div><p id="setup-error" class="form-error" role="alert">${escapeHtml(error)}</p><div class="dialog-actions"><button type="submit" class="button">Create ledger</button></div></form></section>`);
 }
 
 function scoreCard(player: Player, score: number, leaderId: string, session: Pick<LedgerSession, "players" | "lapThreshold" | "status" | "increments">, editable = true): string {
@@ -229,11 +231,21 @@ root.addEventListener("input", (event) => {
   const index = Number(target.dataset.playerIndex);
   const field = target.dataset.field as "name" | "team" | undefined;
   if (field && Number.isInteger(index) && setupPlayers[index]) setupPlayers[index][field] = target.value;
+  if (target.id === "game-title") setupDetails.title = target.value;
+  if (target.id === "lap-threshold") setupDetails.lap = target.value;
+  if (target.id === "increments") setupDetails.increments = target.value;
 });
 
 root.addEventListener("change", async (event) => {
   const target = event.target as HTMLInputElement;
-  if (target.id === "teams-toggle") { setupTeams = target.checked; renderSetup(); document.querySelector<HTMLInputElement>("#teams-toggle")?.focus({ preventScroll: true }); }
+  if (target.id === "teams-toggle") {
+    // The toggle changes the shape of the form. Capture the complete draft at
+    // that boundary so configuration entered before it is never reset.
+    setupDetails.title = document.querySelector<HTMLInputElement>("#game-title")?.value ?? setupDetails.title;
+    setupDetails.lap = document.querySelector<HTMLInputElement>("#lap-threshold")?.value ?? setupDetails.lap;
+    setupDetails.increments = document.querySelector<HTMLInputElement>("#increments")?.value ?? setupDetails.increments;
+    setupTeams = target.checked; renderSetup(); document.querySelector<HTMLInputElement>("#teams-toggle")?.focus({ preventScroll: true });
+  }
   if (target.id === "import-file" && target.files?.[0]) {
     try { const imported = validateImported(JSON.parse(await target.files[0].text())); await saveSession(imported); savedSessions = await listSessions(); await openSession(imported.id); announce("Ledger imported as a new editable copy."); }
     catch (error) { renderHome(); announce(error instanceof Error ? error.message : "Could not import that file."); }
@@ -275,7 +287,7 @@ root.addEventListener("submit", async (event) => {
 root.addEventListener("click", async (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-action]"); if (!target) return;
   const action = target.dataset.action;
-  if (action === "start") { setupPlayers = [{ name: "", team: "" }, { name: "", team: "" }]; setupTeams = false; renderSetup(); setTimeout(() => document.querySelector<HTMLInputElement>("#game-title")?.select()); }
+  if (action === "start") { setupPlayers = [{ name: "", team: "" }, { name: "", team: "" }]; setupTeams = false; setupDetails = { title: "Game night", lap: "", increments: "1, 5, 10" }; renderSetup(); setTimeout(() => document.querySelector<HTMLInputElement>("#game-title")?.select()); }
   if (action === "cancel-setup") renderHome();
   if (action === "add-player") { if (setupPlayers.length < 12) setupPlayers.push({ name: "", team: "" }); renderSetup(); setTimeout(() => document.querySelector<HTMLInputElement>(`#player-${setupPlayers.length - 1}`)?.focus()); }
   if (action === "remove-player") { const index = Number(target.dataset.index); if (setupPlayers.length > 2) setupPlayers.splice(index, 1); renderSetup(); }
