@@ -1,3 +1,27 @@
+# Verification 8 update — Game Night Score Ledger
+
+## Current independent QA verdict
+
+**FAIL — 1 P2 external finding; 0 untested claims.**
+
+Independent verification reviewed implementation
+`18506cc3e3e8766523dfd6eac5ad3d1799703489` with report/documentation SHA
+`ef36303ece80be1b4f62ae3e7c4f79e971f4f586`. The deployed `index.html` and
+`sw.js` exactly match that implementation build. Fresh desktop and 390px
+phone checks, all 22 declared claim commands, 8 unit tests, typecheck, build,
+and both 9-test browser projects pass. The free local-first ledger, isolated
+demo, offline reload, legal pages, designed 404, headers, metadata, focus,
+reduced motion, and axe checks pass.
+
+The visible **Buy Host pack** public path reaches
+`https://api.sociobot.in/api/v1/products/game-night-score-ledger/checkout`,
+which returns HTTP 404. This is a billing-operator registration dependency and
+a broken optional purchase path, so verification is FAIL until the $12 Host
+pack is registered and hosted checkout works. Product code was not changed in
+verification. See `.factory/verification-8.md` for complete evidence.
+
+---
+
 # Repair 5 handoff — Game Night Score Ledger
 
 ## Verdict
