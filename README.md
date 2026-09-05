@@ -1,57 +1,75 @@
 # Game Night Score Ledger
 
-Game Night Score Ledger is a local-first scoreboard for board-game hosts handling long score tracks, laps, teams, and many rounds. It keeps an auditable event trail without accounts or a rules database, works offline after first load, and exports a portable receipt.
+Track board-game scores with laps and teams. It is for hosts who need a clear
+score trail without pausing play or asking players to create accounts.
 
 Live product: <https://game-night-score-ledger.sociobot.in>
 
+One-click sample: <https://game-night-score-ledger.sociobot.in/demo>
+
 ## What it does
 
-- Creates a ledger in under a minute for 2–12 players.
-- Tracks configurable quick increments, manual corrections, rounds, optional teams, and score-track laps.
-- Preserves every change in a timestamped trail; undo creates a compensating event instead of deleting history.
-- Saves locally in IndexedDB with a localStorage fallback and merges simultaneous-tab events under a browser lock.
-- Generates a view-only QR snapshot with no host key; guests cannot edit it.
-- Exports event CSV, score-receipt PNG, and full backup/import JSON.
-- Installs as a PWA and reloads saved ledgers offline.
-- Offers an optional $12 one-time Host pack for distraction-free Table view. Core scoring, accessibility, and exports remain free.
+- Creates ledgers for 2 to 12 players.
+- Tracks quick scores, corrections, rounds, teams, and wrapping score tracks.
+- Keeps each score change in the trail. Undo adds a reversal instead of deleting history.
+- Merges score events made in two open host tabs.
+- Opens a point-in-time, view-only guest snapshot from a QR code.
+- Exports event CSV, a 1200 by 630 PNG, and an editable JSON backup.
+- Saves real ledgers in the browser and reloads them after closing or refreshing.
+- Provides a standalone PWA that reloads offline after the first visit.
 
-## Develop and verify
+The free core includes scoring, teams, laps, history, sharing, and exports. The
+optional Host pack is listed at $12 once and adds the large-screen Table view.
 
-Requires Node.js 20 or newer.
+## Sample sandbox
+
+Select **Try it with sample data** or open `/demo`. The sample has four players,
+two teams, a 100-point lap, and eight score events. Its persistent banner has
+**Reset demo** and **Start for real** actions.
+
+The sample stays in memory under the `demo:sample-session` identifier. It does
+not open or write the real ledger stores. See [`.factory/demo.md`](.factory/demo.md).
+
+## Run and verify
+
+Use Node.js 20 or newer.
 
 ```bash
 npm ci
 npm run dev
 npm test
-npx tsc --noEmit
+npm run typecheck
 npm run build
+npm run test:e2e -- --workers=1
+npm run test:claims -- --project=desktop-chromium --workers=1
 ```
 
-The factory build command is exactly `npm run build`. Production output lands in `dist/`, with `dist/index.html` at its root and separate `privacy/index.html` and `terms/index.html` entries.
+The build command creates `dist/` with `dist/index.html` at its root. Deploy the
+contents of `dist/` to the product's static host. No backend or shared database
+is required.
 
-Browser and offline checks use Playwright:
+Every public product claim and its clean-state browser command is listed in
+[`.factory/claims.json`](.factory/claims.json).
 
-```bash
-npx playwright install chromium
-npm run test:e2e
-```
+## Privacy and sharing
 
-## Billing configuration
+Free scoring and export run in the browser without analytics or runtime CDN
+scripts. Real ledgers use IndexedDB, with a localStorage fallback. A guest QR
+contains a view-only snapshot and no host key. It does not update after sharing.
 
-Production defaults to `https://api.sociobot.in`. Staging can point at the pilot service without changing source:
+## Host pack registration
 
-```bash
-VITE_BILLING_BASE=https://pilot-api.sociobot.in npm run build
-```
+Checkout and license verification use only the Sociobot billing API. The public
+production checkout route is:
 
-No payment provider or product ID is embedded. Checkout and license verification use the Sociobot product slug contract.
+`https://api.sociobot.in/api/v1/products/game-night-score-ledger/checkout`
 
-## Privacy and sharing model
+The billing operator still needs to register this offer; the route returned 404
+during this repair. The app keeps the checkout and license paths ready for that
+registration. No payment provider or credential is embedded in the product.
 
-Scores and player names stay in the browser. There is no analytics, tracking, account system, or third-party runtime CDN. A guest QR is a compact, view-only copy of the current scoreboard and twelve most recent events; it is not live across devices, so the host reshares after the board changes. JSON export/import provides device migration and user-owned backups.
+## Project records
 
-## Project notes
-
-- Visual system and generated-asset provenance: [`.factory/design.md`](.factory/design.md)
-- Build verification and known gaps: [`.factory/handoff.md`](.factory/handoff.md)
+- Visual system and asset provenance: [`.factory/design.md`](.factory/design.md)
+- Latest verification and remaining dependency: [`.factory/handoff.md`](.factory/handoff.md)
 - License: MIT

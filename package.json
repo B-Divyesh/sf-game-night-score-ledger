@@ -9,7 +9,9 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test tests/app.spec.ts",
+    "test:claims": "playwright test tests/claims.spec.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "qrcode": "^1.5.4"

@@ -7,6 +7,8 @@ import { captureLicenseFromUrl, checkoutUrl, initialLicenseState, restoreLicense
 const appRoot = document.querySelector<HTMLDivElement>("#app");
 if (!appRoot) throw new Error("App mount not found");
 const root: HTMLDivElement = appRoot;
+const initialUrl = new URL(location.href);
+const demoMode = initialUrl.pathname.replace(/\/$/, "") === "/demo" || initialUrl.searchParams.get("demo") === "1";
 
 type SetupPlayer = { name: string; team: string };
 type SetupDetails = { title: string; lap: string; increments: string };
@@ -17,7 +19,7 @@ let setupPlayers: SetupPlayer[] = [{ name: "", team: "" }, { name: "", team: "" 
 let setupTeams = false;
 let setupDetails: SetupDetails = { title: "Game night", lap: "", increments: "1, 5, 10" };
 let lastChanged = "";
-let license: LicenseState = initialLicenseState();
+let license: LicenseState = demoMode ? { unlocked: false, checking: false, notice: "" } : initialLicenseState();
 let returnFocus: HTMLElement | null = null;
 let serviceWorkerRegistration: ServiceWorkerRegistration | null = null;
 let applyingServiceWorkerUpdate = false;
@@ -31,17 +33,58 @@ const formatTime = (iso: string): string => new Intl.DateTimeFormat(undefined, {
 const formatDate = (iso: string): string => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
 const signed = (value: number): string => `${value > 0 ? "+" : ""}${value}`;
 
+function makeDemoSession(): LedgerSession {
+  const now = Date.now();
+  const at = (minutesAgo: number): string => new Date(now - minutesAgo * 60_000).toISOString();
+  const players: Player[] = [
+    { id: "demo-maya", name: "Maya", team: "Cedar" },
+    { id: "demo-theo", name: "Theo", team: "Coral" },
+    { id: "demo-priya", name: "Priya", team: "Cedar" },
+    { id: "demo-jonah", name: "Jonah", team: "Coral" }
+  ];
+  return {
+    version: 1,
+    id: "demo:sample-session",
+    hostKey: "demo:host",
+    title: "Saturday strategy final",
+    players,
+    teamsEnabled: true,
+    lapThreshold: 100,
+    increments: [1, 5, 10, 25],
+    round: 3,
+    events: [
+      { id: "demo-e1", playerId: "demo-maya", delta: 62, round: 1, at: at(42), note: "Round total" },
+      { id: "demo-e2", playerId: "demo-theo", delta: 48, round: 1, at: at(39), note: "Round total" },
+      { id: "demo-e3", playerId: "demo-priya", delta: 76, round: 1, at: at(36), note: "Round total" },
+      { id: "demo-e4", playerId: "demo-jonah", delta: 35, round: 1, at: at(33), note: "Round total" },
+      { id: "demo-e5", playerId: "demo-maya", delta: 80, round: 2, at: at(21), note: "Objective bonus" },
+      { id: "demo-e6", playerId: "demo-theo", delta: 53, round: 2, at: at(18), note: "Round total" },
+      { id: "demo-e7", playerId: "demo-priya", delta: 49, round: 2, at: at(15), note: "Round total" },
+      { id: "demo-e8", playerId: "demo-jonah", delta: 38, round: 2, at: at(12), note: "Round total" }
+    ],
+    status: "active",
+    createdAt: at(55),
+    updatedAt: at(12)
+  };
+}
+
+function setPageTitle(title: string): void {
+  document.title = title;
+}
+
 function shell(content: string, wide = false): string {
   return `<div class="app-shell">
     <header class="site-header">
       <a class="brand" href="/" aria-label="Game Night Score Ledger home"><img src="/icons/mark.svg" width="36" height="36" alt=""><span>Game Night Score Ledger</span></a>
+      <nav class="site-nav" aria-label="Primary"><a href="/demo">Demo</a><a href="/?new=1">New ledger</a><a href="/privacy/">Privacy</a></nav>
       <div class="header-actions">
-        <span class="network-state ${navigator.onLine ? "" : "offline"}" aria-live="polite"><span>${navigator.onLine ? "Saved locally" : "Offline · saved locally"}</span></span>
-        <button class="icon-button" data-action="license" aria-label="Host pack and license" title="Host pack">${license.unlocked ? "✦" : "◇"}</button>
+        <span class="network-state ${navigator.onLine ? "" : "offline"}" aria-live="polite"><span>${demoMode ? (navigator.onLine ? "Sample ready" : "Offline sample") : (navigator.onLine ? "Saved locally" : "Offline · saved locally")}</span></span>
+        <button class="license-button" data-action="license" aria-label="Host pack and license"><span aria-hidden="true">${license.unlocked ? "✦" : "◇"}</span><span class="license-name">Host pack</span></button>
       </div>
     </header>
+    ${demoMode ? `<aside class="demo-banner" aria-label="Demo mode"><strong>Demo — sample data, nothing is saved</strong><div><button class="demo-link" data-action="reset-demo">Reset demo</button><a class="demo-link" href="/?new=1">Start for real</a></div></aside>` : ""}
     <main id="main" class="main ${wide ? "wide" : ""}">${content}</main>
-    <footer class="site-footer"><span>Private by default. Scores stay on this device. · Original generated score landscape.</span><nav class="footer-links" aria-label="Legal"><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a></nav></footer>
+    <footer class="site-footer"><span>Scorekeeping for long board-game nights. Original generated score landscape.</span><nav class="footer-links" aria-label="Footer"><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><span>Built by Param Factory</span><span>v1.1.0</span></nav></footer>
     <dialog id="action-dialog" aria-labelledby="dialog-title"></dialog>
     <div id="toast" class="toast" role="status" hidden><span id="toast-text"></span><button class="button small secondary" data-action="reload">Reload</button></div>
     <div id="live" class="live-region" aria-live="polite" aria-atomic="true"></div>
@@ -52,16 +95,18 @@ function renderHome(): void {
   currentSession = null;
   currentSnapshot = null;
   history.replaceState({}, "", "/");
+  setPageTitle("Game Night Score Ledger — Track scores with laps");
   const recent = savedSessions.length ? `<section class="recent" aria-labelledby="recent-title"><div class="recent-head"><div><p class="eyebrow">On this device</p><h2 id="recent-title">Recent ledgers</h2></div><button class="button secondary" data-action="import">Import JSON</button><input id="import-file" type="file" accept="application/json" hidden></div><ul class="recent-list">${savedSessions.map((session) => {
     const totals = scoreMap(session); const leader = [...session.players].sort((a, b) => totals[b.id] - totals[a.id])[0];
     return `<li class="recent-item glass"><span class="status-chip ${session.status === "finished" ? "finished" : ""}">${session.status}</span><h3>${escapeHtml(session.title)}</h3><p class="muted">${session.players.length} players${leader ? ` · ${escapeHtml(leader.name)} ${totals[leader.id]}` : ""}<br>Updated ${formatDate(session.updatedAt)}</p><div class="row-actions"><button class="button small" data-action="open-session" data-id="${session.id}">Open ledger</button><button class="button small ghost" data-action="delete-session" data-id="${session.id}" data-title="${escapeHtml(session.title)}">Delete</button></div></li>`;
-  }).join("")}</ul></section>` : `<section class="recent" aria-labelledby="recent-title"><p class="eyebrow">On this device</p><h2 id="recent-title">No saved ledgers yet</h2><div class="empty-inline">Start a ledger and every score change will appear here—even after closing the app.</div><p><button class="button secondary" data-action="import">Import a ledger JSON</button><input id="import-file" type="file" accept="application/json" hidden></p></section>`;
-  root.innerHTML = shell(`<section class="hero"><div class="hero-copy"><p class="eyebrow">The table-first scorekeeper</p><h1>Keep every point. Lose the arithmetic.</h1><p>Track long rounds, score-track laps, and teams without stopping play. Every change stays visible, undoable, and saved offline.</p><div class="hero-actions"><button class="button" data-action="start">Start a ledger <span aria-hidden="true">→</span></button>${savedSessions[0] ? `<button class="button secondary" data-action="open-session" data-id="${savedSessions[0].id}">Continue last game</button>` : ""}</div><div class="proof-strip" aria-label="Product qualities"><span><b>0</b> accounts</span><span><b>1</b> host</span><span><b>Every</b> move recorded</span></div></div><picture class="hero-art"><source srcset="/assets/score-aurora.webp" type="image/webp"><img src="/assets/score-aurora.jpg" width="1280" height="854" alt="Abstract glass score columns standing on luminous concentric lap rings" fetchpriority="high"></picture></section>${recent}`);
+  }).join("")}</ul></section>` : `<section class="recent" aria-labelledby="recent-title"><p class="eyebrow">Saved ledgers</p><h2 id="recent-title">No saved ledgers yet</h2><div class="empty-inline">Start a ledger. Saved score changes will appear here.</div><p><button class="button secondary" data-action="import">Import a ledger JSON</button><input id="import-file" type="file" accept="application/json" hidden></p></section>`;
+  root.innerHTML = shell(`<section class="hero"><div class="hero-copy"><p class="eyebrow">For board-game hosts</p><h1>Track board-game scores with laps and teams</h1><p>For hosts running long games, this ledger keeps every score change clear while play continues.</p><div class="hero-actions"><a class="button" href="/demo">Try it with sample data</a><button class="button secondary" data-action="start">Start a new ledger</button>${savedSessions[0] ? `<button class="button ghost" data-action="open-session" data-id="${savedSessions[0].id}">Continue last ledger</button>` : ""}</div><p class="action-note">The sample opens a filled ledger with teams, laps, and score changes.</p><ul class="proof-strip" aria-label="Product facts"><li>Works offline after the first visit.</li><li>Scores stay in this browser.</li><li>Free core. Host pack: $12 once.</li></ul></div><picture class="hero-art"><source srcset="/assets/score-aurora.webp" type="image/webp"><img src="/assets/score-aurora.jpg" width="1280" height="854" alt="Glass score columns and lap rings show the score-tracking idea" fetchpriority="high"></picture></section>${recent}<section class="how-it-works" aria-labelledby="how-title"><p class="eyebrow">Three steps</p><h2 id="how-title">How scorekeeping works</h2><ol class="step-list"><li><strong>Add players.</strong><span>Choose quick scores, teams, and an optional lap threshold.</span></li><li><strong>Record each change.</strong><span>Tap points or enter a correction. The score trail keeps both.</span></li><li><strong>Share the result.</strong><span>Open a view-only QR snapshot or export CSV, PNG, and JSON files.</span></li></ol></section><section class="limits" aria-labelledby="limits-title"><div><p class="eyebrow">Scope and privacy</p><h2 id="limits-title">What this ledger does not do</h2></div><p>It has no accounts, ads, analytics, rules database, or automatic sync. A guest link is a snapshot, not a live board.</p></section><section class="pack-section" aria-labelledby="pack-title"><div><p class="eyebrow">Optional purchase</p><h2 id="pack-title">Add Table view for $12 once</h2><p>The free ledger includes scoring, teams, laps, history, sharing, and every export. Host pack adds the large-screen Table view.</p></div><button class="button secondary" data-action="license">View Host pack</button></section>`);
 }
 
 function renderSetup(error = "", errorField?: "increments"): void {
   const teamInputs = setupTeams;
-  root.innerHTML = shell(`<section class="setup glass" aria-labelledby="setup-title"><div class="setup-head"><div><p class="eyebrow">Ready in under a minute</p><h1 id="setup-title" style="font-size:clamp(2rem,6vw,4rem)">Set the table</h1><p class="muted">Names first. Everything else can stay at its useful default.</p></div><button class="button ghost" data-action="cancel-setup">Cancel</button></div>
+  setPageTitle("New ledger — Game Night Score Ledger");
+  root.innerHTML = shell(`<section class="setup glass" aria-labelledby="setup-title"><div class="setup-head"><div><p class="eyebrow">New score ledger</p><h1 id="setup-title" class="compact-title">Set up a score ledger</h1><p class="muted">Add player names. Change the other fields only when the game needs them.</p></div><button class="button ghost" data-action="cancel-setup">Cancel</button></div>
     <form id="setup-form" novalidate><div class="form-grid"><div class="field"><label for="game-title">Game or session name</label><input id="game-title" name="title" maxlength="60" value="${escapeHtml(setupDetails.title)}" required autocomplete="off"></div><div class="field"><label for="lap-threshold">Score track wraps at <span class="muted">(optional)</span></label><input id="lap-threshold" name="lap" type="number" min="2" max="100000" inputmode="numeric" value="${escapeHtml(setupDetails.lap)}" placeholder="For example, 100"><small>We’ll show laps plus track position.</small></div></div>
     <div class="players-editor"><div class="players-editor-head"><span class="field-label">Players</span><button type="button" class="button small secondary" data-action="add-player">Add player</button></div>${setupPlayers.map((player, index) => `<div class="player-editor"><label class="live-region" for="player-${index}">Player ${index + 1} name</label><input id="player-${index}" data-player-index="${index}" data-field="name" maxlength="32" value="${escapeHtml(player.name)}" placeholder="Player ${index + 1}" required autocomplete="off">${teamInputs ? `<label class="live-region" for="team-${index}">Team for ${player.name || `player ${index + 1}`}</label><input class="team-input" id="team-${index}" data-player-index="${index}" data-field="team" maxlength="24" value="${escapeHtml(player.team)}" placeholder="Team name">` : ""}<button type="button" class="icon-button" data-action="remove-player" data-index="${index}" aria-label="Remove player ${index + 1}" ${setupPlayers.length <= 2 ? "disabled" : ""}>×</button></div>`).join("")}</div>
     <div class="form-grid"><label class="field-label"><input id="teams-toggle" type="checkbox" style="width:20px;min-height:20px;margin-right:9px" ${setupTeams ? "checked" : ""}> Add team totals</label><div class="field"><label for="increments">Quick score buttons</label><input id="increments" name="increments" value="${escapeHtml(setupDetails.increments)}" inputmode="numeric" aria-describedby="increments-help${errorField === "increments" ? " setup-error" : ""}" aria-invalid="${errorField === "increments"}"><small id="increments-help">Up to four positive values, separated by commas.</small></div></div><p id="setup-error" class="form-error" role="alert">${escapeHtml(error)}</p><div class="dialog-actions"><button type="submit" class="button">Create ledger</button></div></form></section>`);
@@ -76,6 +121,7 @@ function scoreCard(player: Player, score: number, leaderId: string, session: Pic
 function renderSession(): void {
   if (!currentSession) return;
   const session = currentSession;
+  setPageTitle(demoMode ? "Demo — Game Night Score Ledger" : `${session.title.slice(0, 32)} — Score Ledger`);
   const scores = scoreMap(session);
   const ordered = [...session.players].sort((a, b) => scores[b.id] - scores[a.id] || a.name.localeCompare(b.name));
   const leaderId = ordered[0]?.id ?? "";
@@ -90,6 +136,7 @@ function renderSession(): void {
 function renderSnapshot(): void {
   if (!currentSnapshot) return;
   const snapshot = currentSnapshot;
+  setPageTitle(demoMode ? "Demo — Game Night Score Ledger" : "Guest score — Game Night Score Ledger");
   const ordered = [...snapshot.players].sort((a, b) => snapshot.scores[b.id] - snapshot.scores[a.id] || a.name.localeCompare(b.name));
   const leaderId = ordered[0]?.id ?? "";
   const pseudoSession: Pick<LedgerSession, "players" | "lapThreshold" | "status" | "increments"> = { players: snapshot.players, lapThreshold: snapshot.lapThreshold, status: snapshot.status, increments: [] };
@@ -99,13 +146,20 @@ function renderSnapshot(): void {
 }
 
 function renderError(title: string, message: string): void {
-  root.innerHTML = shell(`<section class="setup glass"><p class="eyebrow">Couldn’t open ledger</p><h1 style="font-size:clamp(2rem,6vw,4rem)">${escapeHtml(title)}</h1><p class="muted measure">${escapeHtml(message)}</p><a class="button" href="/">Return home</a></section>`);
+  setPageTitle("Error — Game Night Score Ledger");
+  root.innerHTML = shell(`<section class="setup glass"><p class="eyebrow">Could not open ledger</p><h1 class="compact-title">${escapeHtml(title)}</h1><p class="muted measure">${escapeHtml(message)}</p><a class="button" href="/">Return home</a></section>`);
 }
 
 function renderLegal(page: "privacy" | "terms"): void {
-  const privacy = `<article class="legal"><p class="eyebrow">Plain-language policy</p><h1>Privacy</h1><p><strong>Last updated August 27, 2026.</strong></p><h2>Your scores stay with you</h2><p>Ledgers, player names, scores, and settings are stored in your browser on this device. We do not receive them, create accounts, run analytics, or sell personal information.</p><h2>Sharing and exports</h2><p>A guest QR contains a compressed copy of the current scoreboard and recent trail in the link itself. Anyone with that link can read the snapshot. It does not grant editing access or update automatically. CSV, image, and JSON exports are created on your device.</p><h2>Purchases</h2><p>If you buy the optional Host pack, Sociobot and its merchant-of-record provider process checkout. This app stores your license token and a cached verification result locally, and sends that token to the Sociobot license endpoint at most once per day. We never receive payment card details.</p><h2>Your choices</h2><p>Delete individual ledgers in the app or clear this site’s browser storage to remove everything. You can use the complete free ledger offline without a purchase.</p><p><a href="/">Back to Score Ledger</a></p></article>`;
-  const terms = `<article class="legal"><p class="eyebrow">Fair, simple terms</p><h1>Terms</h1><p><strong>Effective August 27, 2026.</strong></p><h2>Using the ledger</h2><p>Game Night Score Ledger is provided for personal and group scorekeeping. You are responsible for checking entered scores and keeping exports you need. Do not use the service unlawfully or attempt to disrupt its licensing service.</p><h2>Free and paid features</h2><p>Core scorekeeping, laps, teams, history, and all exports are free. The optional Host pack is a $12 one-time license for table presentation features on devices where the license is active. Sociobot/Dodo is the merchant of record. Refunds are handled through the purchase provider and revoke the associated license.</p><h2>Availability</h2><p>The local ledger is designed to work offline after the app has loaded. Hosted checkout and license restoration require a connection. The software is provided “as is” without a guarantee that it will fit every scoring system or preserve data after browser storage is cleared.</p><h2>Changes</h2><p>Material changes will be reflected here with a new effective date. Continued use after a change means you accept the revised terms.</p><p><a href="/">Back to Score Ledger</a></p></article>`;
+  setPageTitle(`${page === "privacy" ? "Privacy" : "Terms"} — Game Night Score Ledger`);
+  const privacy = `<article class="legal"><p class="eyebrow">Policy</p><h1>Privacy</h1><p><strong>Last updated September 5, 2026.</strong></p><h2>Data stored in this browser</h2><p>Ledgers, player names, scores, and settings are stored in this browser. The demo stays in memory and does not open saved ledgers.</p><p>We do not run analytics or create accounts.</p><h2>Sharing and exports</h2><p>A guest QR puts a compressed scoreboard copy in its link. Anyone with the link can read that snapshot.</p><p>The snapshot cannot edit scores and does not update automatically. CSV, PNG, and JSON exports are created in your browser.</p><h2>Purchases</h2><p>Sociobot and Dodo process Host pack checkout. This app has no payment-card form.</p><p>The app stores a restored license and its result in this browser. It sends the license only to Sociobot for verification.</p><h2>Delete your data</h2><p>Delete a ledger in the app. Clear this site’s browser data to remove every ledger and saved license.</p><p><a href="/">Back to Score Ledger</a></p></article>`;
+  const terms = `<article class="legal"><p class="eyebrow">Product terms</p><h1>Terms</h1><p><strong>Effective September 5, 2026.</strong></p><h2>Using the ledger</h2><p>Use Game Night Score Ledger for personal or group scorekeeping. Check entered scores and keep any exports you need.</p><p>Do not disrupt the site or its license service.</p><h2>Free and paid features</h2><p>Core scoring, laps, teams, history, sharing, and exports are free. Host pack costs $12 once and adds Table view.</p><p>Sociobot and Dodo are the merchant of record. Their refund process revokes the related license.</p><h2>Availability</h2><p>The ledger can reload offline after the first visit. Checkout and license restoration need a connection.</p><p>Browser data can be cleared by you, your browser, or your device. Keep a JSON export when a ledger matters.</p><h2>Changes</h2><p>We will update the date here when these terms change. Continued use means you accept the changed terms.</p><p><a href="/">Back to Score Ledger</a></p></article>`;
   root.innerHTML = shell(page === "privacy" ? privacy : terms);
+}
+
+function renderNotFound(): void {
+  setPageTitle("Page not found — Game Night Score Ledger");
+  root.innerHTML = shell(`<section class="not-found"><div><p class="eyebrow">404</p><h1>This page does not exist</h1><p>The link may be old or incomplete. Return to your saved ledgers or open the sample.</p><div class="hero-actions"><a class="button" href="/">Return to score ledgers</a><a class="button secondary" href="/demo">Open the sample</a></div></div><img src="/icons/mark.svg" width="180" height="180" alt="" aria-hidden="true"></section>`);
 }
 
 function dialog(html: string): HTMLDialogElement {
@@ -135,8 +189,10 @@ async function persistAndRender(message?: string): Promise<void> {
   const action = active?.dataset.action;
   const player = active?.dataset.player;
   const delta = active?.dataset.delta;
-  currentSession = await saveConflictSafe(currentSession);
-  savedSessions = await listSessions();
+  if (!demoMode) {
+    currentSession = await saveConflictSafe(currentSession);
+    savedSessions = await listSessions();
+  }
   renderSession();
   if (action) {
     const selector = `[data-action="${CSS.escape(action)}"]${player ? `[data-player="${CSS.escape(player)}"]` : ""}${delta ? `[data-delta="${CSS.escape(delta)}"]` : ""}`;
@@ -211,7 +267,7 @@ function exportImage(session: LedgerSession): void {
 async function openShare(): Promise<void> {
   if (!currentSession) return;
   const encoded = encodeSnapshot(makeSnapshot(currentSession));
-  const url = `${location.origin}/#view=${encoded}`;
+  const url = `${location.origin}${demoMode ? "/demo" : "/"}#view=${encoded}`;
   const element = dialog(`<div class="dialog-head"><div><p class="eyebrow">Current snapshot</p><h2 id="dialog-title">Guest view</h2><p class="muted">Guests can read this board but cannot edit it. Reshare after new scores.</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close share dialog">×</button></div><div id="qr" class="qr-wrap" role="status" aria-live="polite">Creating QR code…</div><div class="field share-link"><label for="share-url">View-only share link</label><input id="share-url" class="share-url" type="text" readonly value="${escapeHtml(url)}" aria-describedby="share-help"><small id="share-help">Select this link or use Copy link. It contains the point-in-time guest snapshot.</small></div><div class="dialog-actions"><button class="button secondary" data-action="copy-share" data-url="${escapeHtml(url)}">Copy link</button>${"share" in navigator ? `<button class="button" data-action="native-share" data-url="${escapeHtml(url)}">Share</button>` : ""}</div>`);
   try {
     const QRCode = await import("qrcode");
@@ -224,7 +280,7 @@ async function openShare(): Promise<void> {
 }
 
 function openLicense(): void {
-  dialog(`<div class="dialog-head"><div><p class="eyebrow">Optional one-time unlock</p><h2 id="dialog-title">Host pack</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close Host pack dialog">×</button></div><div class="license-box"><span class="license-price">$12</span> <strong>one time</strong><p>Unlock distraction-free Table view for across-the-room scores and future presentation themes. Core scoring, teams, laps, history, accessibility, and every export stay free.</p>${license.notice ? `<p class="muted" role="status">${escapeHtml(license.notice)}</p>` : ""}${license.unlocked ? `<p class="status-chip">Host pack active</p>` : `<a class="button" href="${checkoutUrl()}">Buy Host pack</a>`}</div><form id="license-form"><div class="field"><label for="license-token">Have a license? Paste it here</label><input id="license-token" name="token" autocomplete="off" spellcheck="false" required><small>Verification needs a connection; an active cached license keeps working offline.</small></div><p class="form-error" id="license-error" role="alert"></p><div class="dialog-actions"><button type="submit" class="button secondary">Restore purchase</button></div></form><p class="muted">Checkout is hosted by Sociobot/Dodo, the merchant of record. Refunds are handled there and revoke the license. <a href="/privacy/">Privacy</a> · <a href="/terms/">Terms</a></p>`);
+  dialog(`<div class="dialog-head"><div><p class="eyebrow">Optional one-time purchase</p><h2 id="dialog-title">Host pack</h2></div><button class="icon-button" data-action="close-dialog" aria-label="Close Host pack dialog">×</button></div><div class="license-box"><span class="license-price">$12</span> <strong>one time</strong><p>Host pack adds distraction-free Table view for scores shown across the room. Core scoring, teams, laps, history, accessibility, sharing, and every export stay free.</p>${license.notice ? `<p class="muted" role="status">${escapeHtml(license.notice)}</p>` : ""}${license.unlocked ? `<p class="status-chip">Host pack active</p>` : `<a class="button" href="${checkoutUrl()}">Buy Host pack</a>`}</div><form id="license-form"><div class="field"><label for="license-token">Have a license? Paste it here</label><input id="license-token" name="token" autocomplete="off" spellcheck="false" required><small>Verification needs a connection.</small></div><p class="form-error" id="license-error" role="alert"></p><div class="dialog-actions"><button type="submit" class="button secondary">Restore purchase</button></div></form><p class="muted">Sociobot and Dodo host checkout and handle refunds. A refund revokes the license. <a href="/privacy/">Privacy</a> · <a href="/terms/">Terms</a></p>`);
 }
 
 root.addEventListener("input", (event) => {
@@ -296,6 +352,7 @@ root.addEventListener("submit", async (event) => {
 root.addEventListener("click", async (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-action]"); if (!target) return;
   const action = target.dataset.action;
+  if (action === "reset-demo" && demoMode) { currentSession = makeDemoSession(); currentSnapshot = null; history.replaceState({}, "", "/demo"); renderSession(); focusHeading(); announce("Sample scores reset."); }
   if (action === "start") { setupPlayers = [{ name: "", team: "" }, { name: "", team: "" }]; setupTeams = false; setupDetails = { title: "Game night", lap: "", increments: "1, 5, 10" }; renderSetup(); setTimeout(() => document.querySelector<HTMLInputElement>("#game-title")?.select()); }
   if (action === "cancel-setup") renderHome();
   if (action === "add-player") { if (setupPlayers.length < 12) setupPlayers.push({ name: "", team: "" }); renderSetup(); setTimeout(() => document.querySelector<HTMLInputElement>(`#player-${setupPlayers.length - 1}`)?.focus()); }
@@ -341,7 +398,7 @@ document.addEventListener("keydown", (event) => {
 
 function updateNetwork(): void {
   const state = document.querySelector(".network-state"); if (!state) return;
-  state.classList.toggle("offline", !navigator.onLine); state.innerHTML = `<span>${navigator.onLine ? "Saved locally" : "Offline · saved locally"}</span>`;
+  state.classList.toggle("offline", !navigator.onLine); state.innerHTML = `<span>${demoMode ? (navigator.onLine ? "Sample ready" : "Offline sample") : (navigator.onLine ? "Saved locally" : "Offline · saved locally")}</span>`;
 }
 addEventListener("online", updateNetwork); addEventListener("offline", updateNetwork);
 
@@ -372,9 +429,20 @@ async function applyServiceWorkerUpdate(): Promise<void> {
 }
 
 async function init(): Promise<void> {
+  const page = document.body.dataset.page as "privacy" | "terms" | "404" | undefined;
+  if (page === "404") { renderNotFound(); await registerServiceWorker(); return; }
+  if (page === "privacy" || page === "terms") { renderLegal(page); await registerServiceWorker(); return; }
+  if (demoMode) {
+    if (location.pathname !== "/demo") history.replaceState({}, "", `/demo${location.hash}`);
+    const hash = new URLSearchParams(location.hash.slice(1));
+    try {
+      if (hash.has("view")) { currentSnapshot = decodeSnapshot(String(hash.get("view"))); renderSnapshot(); }
+      else { currentSession = makeDemoSession(); renderSession(); }
+    } catch (error) { renderError("View link is damaged", error instanceof Error ? error.message : "Ask the host to create a new QR code."); }
+    await registerServiceWorker();
+    return;
+  }
   captureLicenseFromUrl();
-  const page = document.body.dataset.page as "privacy" | "terms" | undefined;
-  if (page) { renderLegal(page); await registerServiceWorker(); return; }
   savedSessions = await listSessions();
   const hash = new URLSearchParams(location.hash.slice(1));
   try {
@@ -391,9 +459,11 @@ async function init(): Promise<void> {
   if (license.checking) { license = await verifyLicense(); if (currentSession) renderSession(); }
 }
 
-const channel = new BroadcastChannel("score-ledger");
-channel.addEventListener("message", async (event) => {
-  if (currentSession && event.data?.id === currentSession.id && event.data.updatedAt !== currentSession.updatedAt) { const fresh = await getSession(currentSession.id); if (fresh) { currentSession = fresh; renderSession(); announce("Scores updated from another tab."); } }
-});
+if (!demoMode) {
+  const channel = new BroadcastChannel("score-ledger");
+  channel.addEventListener("message", async (event) => {
+    if (currentSession && event.data?.id === currentSession.id && event.data.updatedAt !== currentSession.updatedAt) { const fresh = await getSession(currentSession.id); if (fresh) { currentSession = fresh; renderSession(); announce("Scores updated from another tab."); } }
+  });
+}
 
 void init();

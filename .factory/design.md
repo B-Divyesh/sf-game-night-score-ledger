@@ -51,7 +51,9 @@ Score totals use a 180ms opacity/translate settle and new history rows enter fro
 ## Asset plan and provenance
 
 - `public/assets/score-aurora.webp` with `.jpg` fallback: original generated atmospheric hero showing abstract translucent scoring pylons and lap rings on a dark tabletop. It establishes the world without suggesting copyrighted games or app functionality that does not exist. The production files are 39 KB and 87 KB respectively.
+- `public/assets/social-score-ledger.jpg`: a 1200×630 center crop derived from the original score landscape for Open Graph and Twitter previews. No new model generation or external art was used.
 - App marks and PWA icons are hand-authored geometric SVG/PNG derived from a lap ring and ledger tick.
+- `public/icons/apple-touch-icon.png`: a 180px derivative of the hand-authored app icon.
 
 ### Generation prompt sheet
 

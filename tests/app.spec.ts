@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 test("keeps title, lap threshold, and quick scores through both team-toggle rerenders", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.getByRole("button", { name: /Start a new ledger/ }).click();
   await page.locator("#game-title").fill("Wrap audit");
   await page.locator("#lap-threshold").fill("100");
   await page.locator("#increments").fill("1, 25, 50");
@@ -30,7 +30,7 @@ test("keeps title, lap threshold, and quick scores through both team-toggle rere
 
 test("rejects the verifier's invalid quick scores without changing or creating score actions", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.getByRole("button", { name: /Start a new ledger/ }).click();
   await page.locator("#player-0").fill("Ada");
   await page.locator("#player-1").fill("Bo");
   await page.locator("#increments").fill("1, 999, 1000, -2");
@@ -39,7 +39,7 @@ test("rejects the verifier's invalid quick scores without changing or creating s
   await expect(page.getByRole("alert")).toHaveText("Use one to four unique whole numbers from 1 to 999 for quick score buttons.");
   await expect(page.locator("#increments")).toHaveValue("1, 999, 1000, -2");
   await expect(page.locator("#increments")).toBeFocused();
-  await expect(page.getByRole("heading", { name: "Set the table" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Set up a score ledger" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Add .* points to Ada/ })).toHaveCount(0);
 
   await page.locator("#increments").fill("1, 999");
@@ -55,8 +55,8 @@ test("creates, scores, persists, shares, and works offline", async ({ page, cont
   page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
   await page.goto("/");
   await expect(page.locator("h1")).toHaveCount(1);
-  await expect(page.getByRole("heading", { name: /Keep every point/ })).toBeVisible();
-  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await expect(page.getByRole("heading", { name: /Track board-game scores/ })).toBeVisible();
+  await page.getByRole("button", { name: /Start a new ledger/ }).click();
   await page.locator("#player-0").fill("Ada");
   await page.locator("#player-1").fill("Bo");
   await page.locator("#lap-threshold").fill("100");
@@ -90,7 +90,7 @@ test("creates, scores, persists, shares, and works offline", async ({ page, cont
 
 test("makes a scannable 12-player QR and keeps guest snapshots noninteractive", async ({ page, context }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.getByRole("button", { name: /Start a new ledger/ }).click();
   for (let index = 2; index < 12; index += 1) await page.getByRole("button", { name: "Add player" }).click();
   await page.locator("#teams-toggle").check();
   const names = Array.from({ length: 12 }, (_, index) => `${index}`.padEnd(32, "N"));
@@ -118,7 +118,7 @@ test("makes a scannable 12-player QR and keeps guest snapshots noninteractive", 
 
 test("keeps keyboard scoring operable", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.getByRole("button", { name: /Start a new ledger/ }).click();
   await page.locator("#player-0").fill("Ada");
   await page.locator("#player-1").fill("Bo");
   await page.getByRole("button", { name: "Create ledger" }).click();
@@ -130,7 +130,7 @@ test("keeps keyboard scoring operable", async ({ page }) => {
 
 test("records every rapid quick-score tap in its displayed total and audit trail", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: /Start a ledger/ }).click();
+  await page.getByRole("button", { name: /Start a new ledger/ }).click();
   await page.locator("#player-0").fill("Ada");
   await page.locator("#player-1").fill("Bo");
   await page.getByRole("button", { name: "Create ledger" }).click();
@@ -158,7 +158,7 @@ test("recovers from an invalid stored ledger without exposing or opening it", as
     request.onerror = () => reject(request.error);
   }));
   await page.reload();
-  await expect(page.getByRole("heading", { name: /Keep every point/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Track board-game scores/ })).toBeVisible();
   await expect(page.getByText("broken", { exact: true })).toHaveCount(0);
 });
 
@@ -181,9 +181,22 @@ test("announces a waiting, versioned service-worker update before reload", async
 });
 
 test("legal pages have one heading and a main landmark", async ({ page }) => {
-  for (const path of ["/privacy/", "/terms/"]) {
+  for (const path of ["/", "/privacy/", "/terms/", "/demo", "/404.html"]) {
     await page.goto(path);
     await expect(page.locator("h1")).toHaveCount(1);
     await expect(page.locator("main")).toHaveCount(1);
+    await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
+    await expect(page.locator('link[rel="canonical"]')).toHaveCount(1);
+    await expect(page.locator('meta[property="og:image"]')).toHaveCount(1);
+    await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
+    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveCount(1);
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations.filter((item) => ["serious", "critical"].includes(item.impact ?? ""))).toEqual([]);
   }
+  await page.goto("/demo");
+  await expect(page).toHaveTitle("Demo — Game Night Score Ledger");
+  await expect(page.getByText("Demo — sample data, nothing is saved")).toBeVisible();
+  await page.goto("/404.html");
+  await expect(page).toHaveTitle("Page not found — Game Night Score Ledger");
+  await expect(page.getByRole("heading", { name: "This page does not exist" })).toBeVisible();
 });

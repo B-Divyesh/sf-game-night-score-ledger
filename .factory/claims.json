@@ -1,0 +1,156 @@
+[
+  {
+    "id": "demo-sandbox",
+    "claim": "The one-click sample is populated, resettable, and does not change saved ledgers.",
+    "where": "landing primary action, demo banner, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:demo-sandbox",
+    "sandbox": "Start at /, seed a real-data canary, enter /demo in one click, score and reset, then assert the canary is unchanged."
+  },
+  {
+    "id": "offline-reload",
+    "claim": "The score ledger reloads offline after the first visit.",
+    "where": "landing facts, terms, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:offline-reload",
+    "sandbox": "Own browser context; load /demo, wait for service-worker control, set the context offline, reload, and assert the sample ledger renders."
+  },
+  {
+    "id": "local-private",
+    "claim": "Score data stays in the browser during free scoring and sharing.",
+    "where": "landing facts, privacy, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:local-private",
+    "sandbox": "Capture all requests while scoring and creating a guest QR from /demo; assert every request stays on the product origin."
+  },
+  {
+    "id": "no-account",
+    "claim": "Core scorekeeping needs no account or sign-in.",
+    "where": "landing scope, privacy, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:no-account",
+    "sandbox": "Open /demo without credentials, assert there are no login fields, record a score, and assert the total changes."
+  },
+  {
+    "id": "players-2-12",
+    "claim": "A ledger supports 2 to 12 players.",
+    "where": "README, setup controls",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:players-2-12",
+    "sandbox": "Use two isolated contexts starting at /demo; create one two-player ledger and one twelve-player ledger, then count score rows."
+  },
+  {
+    "id": "lap-tracking",
+    "claim": "The ledger tracks score-track laps and positions.",
+    "where": "landing headline and steps, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:lap-tracking",
+    "sandbox": "Open /demo and assert Maya's 142 points show one lap and position 42 on a 100-point track; add 10 and assert position 52."
+  },
+  {
+    "id": "team-totals",
+    "claim": "The ledger calculates team totals.",
+    "where": "landing headline and steps, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:team-totals",
+    "sandbox": "Open /demo and assert Cedar and Coral totals equal the sums of their two players."
+  },
+  {
+    "id": "audit-trail",
+    "claim": "Every score change records the player, round, and amount in the score trail.",
+    "where": "landing introduction and steps, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:audit-trail",
+    "sandbox": "Score Theo in /demo and assert one new trail row contains Theo, +5, and Round 3."
+  },
+  {
+    "id": "undo-audit",
+    "claim": "Undo reverses a score without deleting the original event.",
+    "where": "landing steps, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:undo-audit",
+    "sandbox": "Add 10 to Maya in /demo, undo it, then assert the score returns while both the original and reversal remain."
+  },
+  {
+    "id": "rapid-score",
+    "claim": "Rapid score taps are all recorded.",
+    "where": "score controls, regression documentation",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:rapid-score",
+    "sandbox": "Dispatch ten rapid +1 actions in /demo and assert both the displayed total and event count increase by ten."
+  },
+  {
+    "id": "multi-tab-merge",
+    "claim": "Score events from two open host tabs merge into one ledger.",
+    "where": "README privacy and sharing model",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:multi-tab-merge",
+    "sandbox": "Start from /demo, create a clean real ledger, score different players in two open host tabs, reload, and assert both events remain."
+  },
+  {
+    "id": "qr-view-only",
+    "claim": "A guest QR opens a point-in-time score snapshot that cannot edit the ledger.",
+    "where": "landing steps, privacy, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:qr-view-only",
+    "sandbox": "Create the QR in /demo, open its link in a new page, and assert scores render with no score or adjustment controls."
+  },
+  {
+    "id": "csv-export",
+    "claim": "CSV export contains one row for every score event.",
+    "where": "landing steps, README, Export CSV control",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:csv-export",
+    "sandbox": "Export CSV from the eight-event sample and assert the seven-column header plus eight event rows and sample values."
+  },
+  {
+    "id": "png-export",
+    "claim": "PNG export creates a 1200 by 630 score image.",
+    "where": "landing steps, README, Save image control",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:png-export",
+    "sandbox": "Save the sample image and inspect the downloaded file format and pixel dimensions."
+  },
+  {
+    "id": "json-backup-import",
+    "claim": "A JSON backup can be imported as a new editable copy.",
+    "where": "README, privacy",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:json-backup-import",
+    "sandbox": "Export the /demo sample, inspect its players and events, leave demo explicitly, import the file, and assert editable score controls."
+  },
+  {
+    "id": "pwa-installable",
+    "claim": "The product provides a standalone installable web-app shell.",
+    "where": "README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:pwa-installable",
+    "sandbox": "Load /demo, wait for service-worker control, then assert the live manifest has standalone display, a versioned start URL, and a maskable 512px icon."
+  },
+  {
+    "id": "saved-reload",
+    "claim": "A saved ledger and its score survive a browser reload.",
+    "where": "landing saved-ledger section, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:saved-reload",
+    "sandbox": "Start at /demo, explicitly enter real setup in a clean context, create and score a ledger, reload, and assert the score and event remain."
+  },
+  {
+    "id": "free-core",
+    "claim": "Scoring, teams, laps, history, sharing, and exports are free.",
+    "where": "landing Host pack section, Host pack dialog, terms, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:free-core",
+    "sandbox": "Open /demo with no license and assert score, share, and CSV export actions work."
+  },
+  {
+    "id": "host-pack-one-time",
+    "claim": "Host pack is listed at $12 once and adds Table view.",
+    "where": "landing facts and Host pack section, Host pack dialog, terms, README",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:host-pack-one-time",
+    "sandbox": "Open Table view from /demo and assert the purchase dialog shows $12, one-time terms, Table view scope, free-core scope, and the exact Sociobot checkout route."
+  },
+  {
+    "id": "license-local",
+    "claim": "A restored license is stored in the browser and sent only to the Sociobot verification route.",
+    "where": "privacy, Host pack restore form",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:license-local",
+    "sandbox": "Start at /demo, leave through Start for real, intercept the exact Sociobot verifier, restore a fixture token, and assert its localStorage key and only destination."
+  },
+  {
+    "id": "license-revocation",
+    "claim": "A revoked license locks Table view after verification.",
+    "where": "terms, Host pack dialog",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:license-revocation",
+    "sandbox": "Start at /demo with a cached valid fixture, prove Table view opens, return a recorded revoked verifier response, and assert Table view is locked."
+  },
+  {
+    "id": "data-delete",
+    "claim": "Deleting a ledger removes it from the browser's ledger store.",
+    "where": "privacy, recent-ledger Delete action",
+    "test": "npm run test:claims -- --project=desktop-chromium --grep @claim:data-delete",
+    "sandbox": "Start at /demo, explicitly create a real ledger in a clean context, delete it, and assert both the home state and IndexedDB count are empty."
+  }
+]

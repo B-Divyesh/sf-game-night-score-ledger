@@ -1,0 +1,1 @@
+Track board-game scores with laps, teams, a clear score trail, guest QR views, and exports.

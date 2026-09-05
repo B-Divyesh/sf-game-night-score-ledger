@@ -1,7 +1,7 @@
 {
   "name": "Game Night Score Ledger",
   "short_name": "Score Ledger",
-  "description": "An offline, auditable scoreboard for teams, rounds, and wrapping score tracks.",
+  "description": "Track board-game scores, teams, rounds, and laps in a local score ledger.",
   "id": "/?source=pwa",
   "start_url": "/?v=1",
   "scope": "/",
