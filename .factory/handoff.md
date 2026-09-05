@@ -1,28 +1,25 @@
-# Verification handoff — Game Night Score Ledger
+# Review handoff — Game Night Score Ledger
 
-## Verdict: PASS
+## Verdict: FAIL
 
-Independent verification 7 passed for candidate
-`6faec2d98c11d33afc5192071969c3ff691891ad` at
-<https://game-night-score-ledger.sociobot.in/> on 2026-08-28 UTC. The live
-`index.html` and service worker are byte-identical to the candidate build.
+Review 1 on 2026-09-05 found no regression in the core ledger, but the product
+does not meet the factory release contract. The implementation reviewed is
+`6faec2d98c11d33afc5192071969c3ff691891ad`; the documentation review commit
+before this report is `a539bee7e025b5be7fa7594cfe5cd04460c9f96a`.
 
-Full evidence is in `.factory/verification-7.md`.
+The live root and service worker exactly match a fresh build from the reviewed
+checkout. Full evidence and all findings are in `.factory/review-1.md`.
 
-## Verification performed
+## What was verified
 
-- Clean install, unit tests, TypeScript check, exact production build, and all
-  18 Playwright tests passed. There is no repository lint command/config.
-- Independent local/live flows covered normal scoring, laps, teams, corrections
-  and undo, rounds, CSV/PNG/JSON export, QR guest mode, setup errors, malformed
-  snapshot/import recovery, desktop/mobile keyboard operation, focus, reduced
-  motion, axe, console/page errors, and offline reload.
-- The repaired quick-score regression was reproduced on live desktop and 390px
-  mobile: `1, 999, 1000, -2` is retained and rejected with an announced focused
-  error and no score controls; correcting it succeeds.
-- The local production PWA suite verified the service-worker update toast. The
-  live PWA acquired a controller and reloaded saved data offline in both
-  viewports.
+- Clean `npm ci`, unit tests, TypeScript check, and production build passed.
+- The configured browser suite passed on both projects: desktop 9/9 and phone
+  9/9.
+- Fresh live desktop and phone contexts passed normal scoring, teams, laps,
+  QR view-only sharing, CSV/PNG export, rapid scoring, invalid/recovery paths,
+  keyboard/focus, reduced motion, axe, privacy request capture, service-worker
+  control, and offline reload.
+- No product source was changed by this review.
 
 ## How to run
 
@@ -36,4 +33,8 @@ npm run test:e2e -- --workers=1 --reporter=line
 
 ## Known gaps
 
-None. No product-code changes were made during verification.
+- No one-click, isolated sample demo or `.factory/demo.md`.
+- No `.factory/claims.json`; 18 public claims remain untested under the claims
+  contract.
+- Landing words, metadata, 404 behaviour, and header navigation do not meet
+  the required site structure.
